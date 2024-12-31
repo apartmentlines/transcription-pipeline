@@ -28,11 +28,11 @@ pip install -e ".[dev]"
 
 ## Usage
 
-The `transcription_pipeline` can be run as a command-line script or integrated into other Python applications.
+Can be run as a command-line script or integrated into other Python applications.
 
 ### Command-Line Usage
 
-Run the pipeline by executing the `main.py` script:
+Run the pipeline by executing the `transcription-processor` script:
 
 ```bash
 transcription-processor [OPTIONS]
