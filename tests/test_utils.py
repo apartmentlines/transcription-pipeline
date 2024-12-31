@@ -38,7 +38,7 @@ def test_get_request_success(mock_get):
     mock_response = Mock()
     mock_response.status_code = 200
     mock_get.return_value = mock_response
-    response = get_request("http://example.com")
+    response = get_request("http://example.com", params={"api_key": "test_key"})
     assert response.status_code == 200
 
 
@@ -47,7 +47,7 @@ def test_get_request_success(mock_get):
 def test_get_request_failure(mock_sleep, mock_get):
     mock_get.side_effect = requests.exceptions.RequestException
     with pytest.raises(tenacity.RetryError):
-        get_request("http://example.com")
+        get_request("http://example.com", params={"api_key": "test_key"})
 
 
 @patch("requests.post")

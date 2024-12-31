@@ -140,29 +140,84 @@ class TestTranscriptionPipeline:
         assert pipeline.pipeline.processor_class == TranscriptionProcessor
         assert pipeline.pipeline.post_processor_class == TranscriptionPostProcessor
 
-
-@patch("transcription_pipeline.main.TranscriptionPipeline")
-def test_main_success(mock_pipeline):
-    mock_pipeline_instance = Mock()
-    mock_pipeline.return_value = mock_pipeline_instance
-
-    with patch(
-        "sys.argv",
-        ["main.py", "--debug", "--api-key", "test_key", "--domain", "test_domain"],
+    @patch("download_pipeline_processor.processing_pipeline.ProcessingPipeline.run")
+    @patch.object(TranscriptionPipeline, "prepare_file_data")
+    @patch.object(TranscriptionPipeline, "retrieve_file_data")
+    @patch.object(TranscriptionPipeline, "setup_configuration")
+    def test_run_successful_execution(
+        self, mock_setup, mock_retrieve, mock_prepare, mock_run, pipeline
     ):
-        main()
+        mock_files = [
+            {"id": "1", "url": "http://example.com/file1"},
+            {"id": "2", "url": "http://example.com/file2"},
+        ]
+        mock_retrieve.return_value = mock_files
+        mock_prepare.return_value = mock_files
 
-    mock_pipeline.assert_called_once_with(
-        api_key="test_key",
-        domain="test_domain",
-        debug=True,
-        limit=None,
-        processing_limit=DEFAULT_PROCESSING_LIMIT,
-        download_queue_size=DEFAULT_DOWNLOAD_QUEUE_SIZE,
-        download_cache=DEFAULT_DOWNLOAD_CACHE,
-        simulate_downloads=False,
-    )
-    mock_pipeline_instance.run.assert_called_once()
+        pipeline.run()
+
+        mock_setup.assert_called_once()
+        mock_retrieve.assert_called_once()
+        mock_prepare.assert_called_once_with(mock_files)
+        mock_run.assert_called_once_with(mock_files)
+
+    @patch("download_pipeline_processor.processing_pipeline.ProcessingPipeline.run")
+    @patch.object(TranscriptionPipeline, "prepare_file_data")
+    @patch.object(TranscriptionPipeline, "retrieve_file_data")
+    @patch.object(TranscriptionPipeline, "setup_configuration")
+    def test_run_no_files(
+        self, mock_setup, mock_retrieve, mock_prepare, mock_run, pipeline
+    ):
+        mock_retrieve.return_value = []
+
+        pipeline.run()
+
+        mock_setup.assert_called_once()
+        mock_retrieve.assert_called_once()
+        mock_prepare.assert_not_called()
+        mock_run.assert_not_called()
+
+    @patch("download_pipeline_processor.processing_pipeline.ProcessingPipeline.run")
+    @patch.object(TranscriptionPipeline, "setup_configuration")
+    def test_run_configuration_error(self, mock_setup, mock_run, pipeline):
+        mock_setup.side_effect = ValueError("Configuration error")
+
+        with pytest.raises(ValueError, match="Configuration error"):
+            pipeline.run()
+        mock_run.assert_not_called()
+
+    @patch("download_pipeline_processor.processing_pipeline.ProcessingPipeline.run")
+    @patch.object(TranscriptionPipeline, "retrieve_file_data")
+    @patch.object(TranscriptionPipeline, "setup_configuration")
+    def test_run_retrieve_error(self, mock_setup, mock_retrieve, mock_run, pipeline):
+        mock_retrieve.side_effect = Exception("Retrieval error")
+
+        with pytest.raises(Exception, match="Retrieval error"):
+            pipeline.run()
+        mock_run.assert_not_called()
+
+    @patch("transcription_pipeline.main.TranscriptionPipeline")
+    def test_main_success(self, mock_pipeline):
+        mock_pipeline_instance = Mock()
+        mock_pipeline.return_value = mock_pipeline_instance
+
+        with patch(
+            "sys.argv",
+            ["main.py", "--debug", "--api-key", "test_key", "--domain", "test_domain"],
+        ):
+            main()
+
+        mock_pipeline.assert_called_once_with(
+            api_key="test_key",
+            domain="test_domain",
+            debug=True,
+            limit=None,
+            processing_limit=DEFAULT_PROCESSING_LIMIT,
+            download_queue_size=DEFAULT_DOWNLOAD_QUEUE_SIZE,
+            download_cache=DEFAULT_DOWNLOAD_CACHE,
+            simulate_downloads=False,
+        )
+        mock_pipeline_instance.run.assert_called_once()
 
 
 @patch("transcription_pipeline.main.load_configuration")
