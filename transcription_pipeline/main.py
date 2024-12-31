@@ -56,13 +56,19 @@ class TranscriptionPipeline:
             debug=self.debug,
         )
 
+    def build_retrieve_request_url(self) -> str:
+        return f"https://{self.domain}/al/transcriptions/retrieve/operator-recordings"
+
+    def build_retrieve_request_params(self) -> dict:
+        return {
+            "api_key": self.api_key,
+        }
+
     def retrieve_file_data(self) -> List[dict]:
-        url = f"https://{self.domain}/al/transcriptions/retrieve/operator-recordings"
+        url = self.build_retrieve_request_url()
         self.log.debug(f"Retrieving file data from URL: {url}")
         try:
-            params = {
-                "api_key": self.api_key,
-            }
+            params = self.build_retrieve_request_params()
             response = get_request(url, params)
             resp_json = response.json()
             if resp_json.get("success"):

@@ -140,6 +140,18 @@ class TestTranscriptionPipeline:
         assert pipeline.pipeline.processor_class == TranscriptionProcessor
         assert pipeline.pipeline.post_processor_class == TranscriptionPostProcessor
 
+    def test_build_retrieve_request_url(self, pipeline):
+        """Test that the retrieve request URL is correctly constructed."""
+        expected_url = "https://test_domain/al/transcriptions/retrieve/operator-recordings"
+        assert pipeline.build_retrieve_request_url() == expected_url
+
+    def test_build_retrieve_request_params(self, pipeline):
+        """Test that the retrieve request parameters are correctly constructed."""
+        expected_params = {
+            "api_key": "test_key"
+        }
+        assert pipeline.build_retrieve_request_params() == expected_params
+
     @patch("download_pipeline_processor.processing_pipeline.ProcessingPipeline.run")
     @patch.object(TranscriptionPipeline, "prepare_file_data")
     @patch.object(TranscriptionPipeline, "retrieve_file_data")
