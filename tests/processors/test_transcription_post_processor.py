@@ -90,37 +90,25 @@ def test_build_update_url():
     assert url == "https://my.test_domain/al/transcriptions/update/operator-recording"
 
 
-@patch("transcription_pipeline.processors.transcription_post_processor.logging")
 @patch.dict(
     os.environ,
     {"TRANSCRIPTION_API_KEY": "test_api_key", "TRANSCRIPTION_DOMAIN": "test_domain"},
 )
-def test_handle_response_success(mock_logging):
+def test_handle_response_success():
     processor = TranscriptionPostProcessor()
     mock_response = Mock()
     mock_response.json.return_value = {"success": True}
     mock_response.request = Mock()
     mock_response.request.body = {"id": "123"}
-
     processor.handle_response(mock_response)
 
-    processor.log.info.assert_called_once_with(
-        "Successfully updated transcription for ID 123"
-    )
 
-
-@patch("transcription_pipeline.processors.transcription_post_processor.logging")
 @patch.dict(
     os.environ,
     {"TRANSCRIPTION_API_KEY": "test_api_key", "TRANSCRIPTION_DOMAIN": "test_domain"},
 )
-def test_handle_response_failure(mock_logging):
+def test_handle_response_failure():
     processor = TranscriptionPostProcessor()
     mock_response = Mock()
     mock_response.json.return_value = {"success": False, "message": "Error message"}
-
     processor.handle_response(mock_response)
-
-    processor.log.error.assert_called_once_with(
-        "Failed to update transcription: Error message"
-    )

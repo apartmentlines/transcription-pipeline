@@ -1,14 +1,13 @@
 import os
-import logging
 from download_pipeline_processor.processors.base_post_processor import BasePostProcessor
 from transcription_pipeline.utils import post_request
 
 
 class TranscriptionPostProcessor(BasePostProcessor):
-    def __init__(self):
+    def __init__(self, debug: bool = False):
+        super().__init__(debug=debug)
         self.api_key = os.environ.get("TRANSCRIPTION_API_KEY")
         self.domain = os.environ.get("TRANSCRIPTION_DOMAIN")
-        self.log = logging.getLogger(__name__)
 
     def post_process(self, result: dict) -> None:
         url = self.build_update_url()
