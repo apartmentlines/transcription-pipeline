@@ -1,6 +1,6 @@
 import os
 import logging
-from download_pipeline_processor.base_post_processor import BasePostProcessor
+from download_pipeline_processor.processors.base_post_processor import BasePostProcessor
 from transcription_pipeline.utils import post_request
 
 class TranscriptionPostProcessor(BasePostProcessor):

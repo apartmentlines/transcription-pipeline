@@ -1,5 +1,5 @@
 import logging
-from download_pipeline_processor.base_processor import BaseProcessor
+from download_pipeline_processor.processors.base_processor import BaseProcessor
 from download_pipeline_processor.file_data import FileData
 
 class TranscriptionProcessor(BaseProcessor):
