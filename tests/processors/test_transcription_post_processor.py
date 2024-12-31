@@ -87,7 +87,7 @@ def test_construct_post_data_failure():
 def test_build_update_url():
     processor = TranscriptionPostProcessor()
     url = processor.build_update_url()
-    assert url == "https://my.test_domain/al/transcriptions/update/operator-recording"
+    assert url == "https://test_domain/al/transcriptions/update/operator-recording"
 
 
 @patch.dict(

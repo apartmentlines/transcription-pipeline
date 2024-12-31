@@ -32,7 +32,7 @@ class TranscriptionPostProcessor(BasePostProcessor):
         return data
 
     def build_update_url(self) -> str:
-        return f"https://my.{self.domain}/al/transcriptions/update/operator-recording"
+        return f"https://{self.domain}/al/transcriptions/update/operator-recording"
 
     def handle_response(self, response) -> None:
         resp_json = response.json()
