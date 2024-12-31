@@ -1,11 +1,16 @@
 import argparse
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 from download_pipeline_processor.processing_pipeline import ProcessingPipeline
-from transcription_pipeline.processors.transcription_processor import TranscriptionProcessor
-from transcription_pipeline.processors.transcription_post_processor import TranscriptionPostProcessor
+from download_pipeline_processor.logger import Logger
+from transcription_pipeline.processors.transcription_processor import (
+    TranscriptionProcessor,
+)
+from transcription_pipeline.processors.transcription_post_processor import (
+    TranscriptionPostProcessor,
+)
 from transcription_pipeline.utils import (
-    configure_logging,
+    get_request,
     positive_int,
     fail_hard,
 )
@@ -16,66 +21,150 @@ from transcription_pipeline.constants import (
     DEFAULT_DOWNLOAD_CACHE,
 )
 
+
+class TranscriptionPipeline:
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        domain: Optional[str] = None,
+        limit: Optional[int] = None,
+        processing_limit: int = DEFAULT_PROCESSING_LIMIT,
+        download_queue_size: int = DEFAULT_DOWNLOAD_QUEUE_SIZE,
+        download_cache: Path = DEFAULT_DOWNLOAD_CACHE,
+        simulate_downloads: bool = False,
+        debug: bool = False,
+    ) -> None:
+        self.log = Logger(self.__class__.__name__, debug=debug)
+        self.api_key = api_key
+        self.domain = domain
+        self.limit = limit
+        self.processing_limit = processing_limit
+        self.download_queue_size = download_queue_size
+        self.download_cache = download_cache
+        self.simulate_downloads = simulate_downloads
+        self.debug = debug
+        self.pipeline = self._initialize_pipeline()
+
+    def _initialize_pipeline(self) -> ProcessingPipeline:
+        return ProcessingPipeline(
+            processor_class=TranscriptionProcessor,
+            post_processor_class=TranscriptionPostProcessor,
+            processing_limit=self.processing_limit,
+            download_queue_size=self.download_queue_size,
+            download_cache=self.download_cache,
+            simulate_downloads=self.simulate_downloads,
+            debug=self.debug,
+        )
+
+    def retrieve_file_data(self) -> List[dict]:
+        self.log.debug(f"Retrieving file data from domain: {self.domain}")
+        url = f"https://my.{self.domain}/al/transcriptions/retrieve/operator-recordings"
+        try:
+            response = get_request(url)
+            resp_json = response.json()
+            if resp_json.get("success"):
+                files = resp_json.get("files", [])
+                if not files:
+                    fail_hard("No files to process.")
+                self.log.info(f"Retrieved {len(files)} files for processing")
+                return files
+            else:
+                fail_hard("Failed to retrieve files.")
+        except Exception as e:
+            fail_hard(f"Error retrieving files: {e}")
+
+    def prepare_file_data(self, files: List[dict]) -> List[dict]:
+        self.log.debug("Preparing file data with API key")
+        for file in files:
+            separator = "&" if "?" in file["url"] else "?"
+            file["url"] += f"{separator}api_key={self.api_key}"
+        if self.limit:
+            self.log.info(f"Limiting processing to {self.limit} files")
+            files = files[: self.limit]
+        return files
+
+    def setup_configuration(self) -> None:
+        self.log.debug("Setting up configuration")
+        if not self.api_key or not self.domain:
+            fail_hard("API key and domain must be provided")
+        set_environment_variables(self.api_key, self.domain)
+        self.log.info("Configuration loaded successfully")
+
+    def run(self) -> None:
+        self.log.info("Starting transcription pipeline")
+        self.setup_configuration()
+        files = self.retrieve_file_data()
+        files = self.prepare_file_data(files)
+        self.log.info("Starting pipeline execution")
+        self.pipeline.run(files)
+        self.log.info("Transcription pipeline completed")
+
+
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the processing pipeline.")
-    parser.add_argument("--limit", type=positive_int, help="Only transcribe this many files, default unlimited")
-    parser.add_argument('--api-key', type=str, help="API key (also can be provided as TRANSCRIPTION_API_KEY environment variable)")
-    parser.add_argument('--domain', type=str, help="Transcription domain used for REST operations (also can be provided as TRANSCRIPTION_DOMAIN environment variable)")
-    parser.add_argument("--processing-limit", type=positive_int, default=DEFAULT_PROCESSING_LIMIT, help="Maximum concurrent processing threads, default %(default)s")
-    parser.add_argument("--download-queue-size", type=positive_int, default=DEFAULT_DOWNLOAD_QUEUE_SIZE, help="Maximum size of downloaded files queue, default %(default)s")
-    parser.add_argument("--download-cache", type=Path, default=DEFAULT_DOWNLOAD_CACHE, help="Directory to cache downloaded files, default %(default)s")
-    parser.add_argument("--simulate-downloads", action="store_true", help="Simulate downloads instead of performing actual downloads")
+    parser.add_argument(
+        "--limit",
+        type=positive_int,
+        help="Only transcribe this many files, default unlimited",
+    )
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        help="API key (also can be provided as TRANSCRIPTION_API_KEY environment variable)",
+    )
+    parser.add_argument(
+        "--domain",
+        type=str,
+        help="Transcription domain used for REST operations (also can be provided as TRANSCRIPTION_DOMAIN environment variable)",
+    )
+    parser.add_argument(
+        "--processing-limit",
+        type=positive_int,
+        default=DEFAULT_PROCESSING_LIMIT,
+        help="Maximum concurrent processing threads, default %(default)s",
+    )
+    parser.add_argument(
+        "--download-queue-size",
+        type=positive_int,
+        default=DEFAULT_DOWNLOAD_QUEUE_SIZE,
+        help="Maximum size of downloaded files queue, default %(default)s",
+    )
+    parser.add_argument(
+        "--download-cache",
+        type=Path,
+        default=DEFAULT_DOWNLOAD_CACHE,
+        help="Directory to cache downloaded files, default %(default)s",
+    )
+    parser.add_argument(
+        "--simulate-downloads",
+        action="store_true",
+        help="Simulate downloads instead of performing actual downloads",
+    )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     return parser.parse_args()
 
-import requests
-from transcription_pipeline.utils import get_request
-
-def retrieve_file_data(domain: str) -> list[dict]:
-    url = f"https://my.{domain}/al/transcriptions/retrieve/operator-recordings"
-    try:
-        response = get_request(url)
-        resp_json = response.json()
-        if resp_json.get('success'):
-            files = resp_json.get('files', [])
-            if not files:
-                fail_hard("No files to process.")
-            return files
-        else:
-            fail_hard("Failed to retrieve files.")
-    except Exception as e:
-        fail_hard(f"Error retrieving files: {e}")
-
-def prepare_file_data(files: list[dict], api_key: str, limit: Optional[int]) -> list[dict]:
-    for file in files:
-        separator = '&' if '?' in file['url'] else '?'
-        file['url'] += f"{separator}api_key={api_key}"
-    if limit:
-        files = files[:limit]
-    return files
 
 def main() -> None:
     args = parse_arguments()
-    configure_logging(args.debug)
-    api_key = None
-    domain = None
+
     try:
         api_key, domain = load_configuration(args)
-        set_environment_variables(api_key, domain)
     except ValueError as e:
         fail_hard(str(e))
         return
-    files = retrieve_file_data(domain)
-    files = prepare_file_data(files, api_key, args.limit)
-    pipeline = ProcessingPipeline(
-        processor_class=TranscriptionProcessor,
-        post_processor_class=TranscriptionPostProcessor,
+
+    pipeline = TranscriptionPipeline(
+        api_key=api_key,
+        domain=domain,
+        limit=args.limit,
         processing_limit=args.processing_limit,
         download_queue_size=args.download_queue_size,
         download_cache=args.download_cache,
         simulate_downloads=args.simulate_downloads,
+        debug=args.debug,
     )
-    pipeline.run(files)
+    pipeline.run()
+
 
 if __name__ == "__main__":
     main()

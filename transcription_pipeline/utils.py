@@ -9,33 +9,40 @@ from transcription_pipeline.constants import (
     DOWNLOAD_TIMEOUT,
 )
 
+
 def positive_int(value: str) -> int:
     ivalue = int(value)
     if ivalue <= 0:
         raise argparse.ArgumentTypeError(f"{value} is not a positive integer")
     return ivalue
 
+
 def fail_hard(message: str) -> None:
     logger = logging.getLogger(__name__)
     logger.error(message)
     sys.exit(1)
 
+
 def fail_soft(message: str) -> None:
     logger = logging.getLogger(__name__)
     logger.error(message)
 
-@retry(stop=stop_after_attempt(DEFAULT_RETRY_ATTEMPTS), wait=wait_exponential(multiplier=DEFAULT_RETRY_BACKOFF))
+
+@retry(
+    stop=stop_after_attempt(DEFAULT_RETRY_ATTEMPTS),
+    wait=wait_exponential(multiplier=DEFAULT_RETRY_BACKOFF),
+)
 def get_request(url: str) -> requests.Response:
     response = requests.get(url, timeout=DOWNLOAD_TIMEOUT)
     response.raise_for_status()
     return response
 
-@retry(stop=stop_after_attempt(DEFAULT_RETRY_ATTEMPTS), wait=wait_exponential(multiplier=DEFAULT_RETRY_BACKOFF))
+
+@retry(
+    stop=stop_after_attempt(DEFAULT_RETRY_ATTEMPTS),
+    wait=wait_exponential(multiplier=DEFAULT_RETRY_BACKOFF),
+)
 def post_request(url: str, data: dict) -> requests.Response:
     response = requests.post(url, data=data, timeout=DOWNLOAD_TIMEOUT)
     response.raise_for_status()
     return response
-
-def configure_logging(debug: bool) -> None:
-    level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(level=level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
