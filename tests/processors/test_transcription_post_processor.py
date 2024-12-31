@@ -58,7 +58,7 @@ def test_construct_post_data_success():
         "id": "123",
         "success": True,
         "transcription": "Test transcription",
-        "metadata": {"key": "value"},
+        "metadata": '{"key": "value"}',
     }
 
 

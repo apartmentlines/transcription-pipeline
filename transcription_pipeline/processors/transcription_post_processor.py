@@ -1,4 +1,5 @@
 import os
+import json
 from download_pipeline_processor.processors.base_post_processor import BasePostProcessor
 from transcription_pipeline.utils import post_request
 
@@ -28,7 +29,7 @@ class TranscriptionPostProcessor(BasePostProcessor):
         }
         if result["success"]:
             data["transcription"] = result["transcription"]
-            data["metadata"] = result["metadata"]
+            data["metadata"] = json.dumps(result["metadata"])
         return data
 
     def build_update_url(self) -> str:
