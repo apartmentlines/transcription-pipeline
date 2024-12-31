@@ -1,6 +1,6 @@
 # Transcription Pipeline
 
-A processing pipeline for transcribing audio files and handling post-processing tasks. This package leverages the `download-pipeline-processor` framework to manage the downloading, processing, and post-processing of audio files.
+A processing pipeline for transcribing audio files and handling post-processing tasks. This package leverages the [download-pipeline-processor](https://github.com/apartmentlines/download-pipeline-processor) framework to manage the downloading, processing, and post-processing of audio files.
 
 ## Features
 
@@ -13,11 +13,11 @@ A processing pipeline for transcribing audio files and handling post-processing 
 ## Requirements
 
 - Python 3.9 or later.
-- `download-pipeline-processor` package
+- [download-pipeline-processor](https://github.com/apartmentlines/download-pipeline-processor) package
 
 ## Installation
 
-Ensure `download-pipeline-processor` package is installed locally.
+Ensure [download-pipeline-processor](https://github.com/apartmentlines/download-pipeline-processor) package is installed locally.
 
 ```bash
 pip install -e .
