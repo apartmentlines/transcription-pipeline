@@ -98,9 +98,8 @@ def test_handle_response_success():
     processor = TranscriptionPostProcessor()
     mock_response = Mock()
     mock_response.json.return_value = {"success": True}
-    mock_response.request = Mock()
-    mock_response.request.body = {"id": "123"}
-    processor.handle_response(mock_response)
+    result = {"id": "123"}
+    processor.handle_response(mock_response, result)
 
 
 @patch.dict(
@@ -111,4 +110,5 @@ def test_handle_response_failure():
     processor = TranscriptionPostProcessor()
     mock_response = Mock()
     mock_response.json.return_value = {"success": False, "message": "Error message"}
-    processor.handle_response(mock_response)
+    result = {"id": "123"}
+    processor.handle_response(mock_response, result)

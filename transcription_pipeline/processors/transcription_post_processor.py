@@ -15,7 +15,7 @@ class TranscriptionPostProcessor(BasePostProcessor):
         data = self.construct_post_data(result)
         try:
             response = post_request(url, data)
-            self.handle_response(response)
+            self.handle_response(response, result)
         except Exception as e:
             self.log.error(
                 f"Failed to post-process result for ID {result.get('id')}: {e}"
@@ -35,11 +35,11 @@ class TranscriptionPostProcessor(BasePostProcessor):
     def build_update_url(self) -> str:
         return f"https://{self.domain}/al/transcriptions/update/operator-recording"
 
-    def handle_response(self, response) -> None:
+    def handle_response(self, response, result) -> None:
         resp_json = response.json()
         if resp_json.get("success"):
             self.log.info(
-                f"Successfully updated transcription for ID {response.request.body.get('id')}"
+                f"Successfully updated transcription for ID {result.get('id')}"
             )
         else:
             self.log.error(
