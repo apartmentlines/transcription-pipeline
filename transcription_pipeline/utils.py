@@ -32,8 +32,8 @@ def fail_soft(message: str) -> None:
     stop=stop_after_attempt(DEFAULT_RETRY_ATTEMPTS),
     wait=wait_exponential(multiplier=DEFAULT_RETRY_BACKOFF),
 )
-def get_request(url: str) -> requests.Response:
-    response = requests.get(url, timeout=DOWNLOAD_TIMEOUT)
+def get_request(url: str, params: dict) -> requests.Response:
+    response = requests.get(url, params=params, timeout=DOWNLOAD_TIMEOUT)
     response.raise_for_status()
     return response
 

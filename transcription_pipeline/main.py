@@ -57,15 +57,16 @@ class TranscriptionPipeline:
         )
 
     def retrieve_file_data(self) -> List[dict]:
-        self.log.debug(f"Retrieving file data from domain: {self.domain}")
-        url = f"https://my.{self.domain}/al/transcriptions/retrieve/operator-recordings"
+        url = f"https://{self.domain}/al/transcriptions/retrieve/operator-recordings"
+        self.log.debug(f"Retrieving file data from URL: {url}")
         try:
-            response = get_request(url)
+            params = {
+                "api_key": self.api_key,
+            }
+            response = get_request(url, params)
             resp_json = response.json()
             if resp_json.get("success"):
                 files = resp_json.get("files", [])
-                if not files:
-                    fail_hard("No files to process.")
                 self.log.info(f"Retrieved {len(files)} files for processing")
                 return files
             else:
@@ -94,6 +95,9 @@ class TranscriptionPipeline:
         self.log.info("Starting transcription pipeline")
         self.setup_configuration()
         files = self.retrieve_file_data()
+        if not files:
+            self.log.info("No files to process")
+            return
         files = self.prepare_file_data(files)
         self.log.info("Starting pipeline execution")
         self.pipeline.run(files)
