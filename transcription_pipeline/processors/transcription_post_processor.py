@@ -1,6 +1,7 @@
 import os
 import json
 from download_pipeline_processor.processors.base_post_processor import BasePostProcessor
+from download_pipeline_processor.file_data import FileData
 from transcription_pipeline.utils import post_request
 
 
@@ -10,7 +11,7 @@ class TranscriptionPostProcessor(BasePostProcessor):
         self.api_key = os.environ.get("TRANSCRIPTION_API_KEY")
         self.domain = os.environ.get("TRANSCRIPTION_DOMAIN")
 
-    def post_process(self, result: dict) -> None:
+    def post_process(self, result: dict, file_data: FileData) -> None:
         url = self.build_update_url()
         data = self.construct_post_data(result)
         try:
@@ -18,7 +19,7 @@ class TranscriptionPostProcessor(BasePostProcessor):
             self.handle_response(response, result)
         except Exception as e:
             self.log.error(
-                f"Failed to post-process result for ID {result.get('id')}: {e}"
+                f"Failed to post-process result for ID {file_data.id}: {e}"
             )
 
     def construct_post_data(self, result: dict) -> dict:

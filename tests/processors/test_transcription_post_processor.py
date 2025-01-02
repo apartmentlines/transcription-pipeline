@@ -16,7 +16,7 @@ def test_transcription_post_processor_instantiation():
 
 
 @patch("transcription_pipeline.processors.transcription_post_processor.post_request")
-def test_transcription_post_processor_post_process_success(mock_post_request):
+def test_transcription_post_processor_post_process_success(mock_post_request, file_data):
     mock_response = Mock()
     mock_response.json.return_value = {"success": True}
     mock_post_request.return_value = mock_response
@@ -27,16 +27,16 @@ def test_transcription_post_processor_post_process_success(mock_post_request):
         "transcription": "Test transcription",
         "metadata": {"key": "value"},
     }
-    processor.post_process(result)
+    processor.post_process(result, file_data)
     mock_post_request.assert_called_once()
 
 
 @patch("transcription_pipeline.processors.transcription_post_processor.post_request")
-def test_transcription_post_processor_post_process_failure(mock_post_request):
+def test_transcription_post_processor_post_process_failure(mock_post_request, file_data):
     mock_post_request.side_effect = Exception("Post request failed")
     processor = TranscriptionPostProcessor()
     result = {"id": "123", "success": False}
-    processor.post_process(result)
+    processor.post_process(result, file_data)
     mock_post_request.assert_called_once()
 
 

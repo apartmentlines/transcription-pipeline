@@ -9,10 +9,9 @@ def test_transcription_processor_instantiation():
     assert hasattr(processor, "process")
 
 
-def test_transcription_processor_process():
+def test_transcription_processor_process(file_data):
     processor = TranscriptionProcessor()
-    mock_file_data = FileData(id="123", name="test_file", url="http://example.com/file")
-    result = processor.process(mock_file_data)
+    result = processor.process(file_data)
     assert result["id"] == "123"
     assert result["success"] is True
     assert "transcription" in result
