@@ -24,8 +24,13 @@ class TranscriptionProcessor(BaseProcessor):
         :return: Formatted SRT string
         """
         with tempfile.NamedTemporaryFile(mode='w+', suffix='.srt', delete=True) as tmp:
+            options = {
+                "max_line_width": None,
+                "max_line_count": 1,
+                "highlight_words": False,
+            }
             writer = get_writer("srt", os.path.dirname(tmp.name))
-            writer(result, os.path.basename(tmp.name), {})
+            writer(result, os.path.basename(tmp.name), options)
             tmp.seek(0)
             return tmp.read()
 
