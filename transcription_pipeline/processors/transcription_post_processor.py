@@ -13,16 +13,23 @@ class TranscriptionPostProcessor(BasePostProcessor):
 
     def post_process(self, result: dict, file_data: FileData) -> None:
         url = self.build_update_url()
-        data = self.construct_post_data(result)
+        result_state = self.determine_result_state(result, file_data)
+        data = self.format_request_payload(result_state)
         try:
             response = post_request(url, data)
             self.handle_response(response, result)
         except Exception as e:
-            self.log.error(
-                f"Failed to post-process result for ID {file_data.id}: {e}"
-            )
+            self.log.error(f"Failed to post-process result for ID {file_data.id}: {e}")
 
-    def construct_post_data(self, result: dict) -> dict:
+    def determine_result_state(self, result: dict, file_data: FileData) -> dict:
+        if file_data.has_error:
+            self.log.warning(
+                f"Processing failed in stage '{file_data.error.stage}' with error: {file_data.error.error}"
+            )
+            return {"id": file_data.id, "success": False}
+        return result
+
+    def format_request_payload(self, result: dict) -> dict:
         data = {
             "api_key": self.api_key,
             "id": result["id"],

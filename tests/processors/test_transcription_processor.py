@@ -1,7 +1,6 @@
 from transcription_pipeline.processors.transcription_processor import (
     TranscriptionProcessor,
 )
-from download_pipeline_processor.file_data import FileData
 
 
 def test_transcription_processor_instantiation():
