@@ -2,6 +2,8 @@ from download_pipeline_processor.processors.base_processor import BaseProcessor
 from download_pipeline_processor.file_data import FileData
 from whisperx.utils import get_writer
 from ..transcriber import Transcriber
+import tempfile
+import os
 
 
 class TranscriptionProcessor(BaseProcessor):
@@ -21,8 +23,11 @@ class TranscriptionProcessor(BaseProcessor):
         :param result: Dictionary containing transcription results
         :return: Formatted SRT string
         """
-        writer = get_writer("srt", None)
-        return writer(result, "dummy", {})
+        with tempfile.NamedTemporaryFile(mode='w+', suffix='.srt', delete=True) as tmp:
+            writer = get_writer("srt", os.path.dirname(tmp.name))
+            writer(result, os.path.basename(tmp.name), {})
+            tmp.seek(0)
+            return tmp.read()
 
     def process(self, file_data: FileData) -> dict:
         """Process an audio file for transcription.
