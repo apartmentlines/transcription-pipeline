@@ -56,7 +56,7 @@ def test_determine_result_state_success(file_data):
     assert state == result
 
 
-def test_determine_result_state_with_error(file_data):
+def test_determine_result_state_with_file_data_error(file_data):
     processor = TranscriptionPostProcessor()
     result = {
         "id": "123",
@@ -64,6 +64,17 @@ def test_determine_result_state_with_error(file_data):
     }
     file_data.add_error("download", "Download failed")
 
+    state = processor.determine_result_state(result, file_data)
+    assert state == {"id": "123", "success": False}
+
+
+def test_determine_result_state_with_missing_transcription_error(file_data):
+    processor = TranscriptionPostProcessor()
+    result = {
+        "id": "123",
+        "success": True,
+        "transcription": "",
+    }
     state = processor.determine_result_state(result, file_data)
     assert state == {"id": "123", "success": False}
 

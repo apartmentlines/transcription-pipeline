@@ -27,6 +27,12 @@ class TranscriptionPostProcessor(BasePostProcessor):
                 f"Processing failed in stage '{file_data.error.stage}' with error: {file_data.error.error}"
             )
             return {"id": file_data.id, "success": False}
+        if result["success"]:
+            if not result["transcription"]:
+                self.log.warning(
+                    f"No transcription found for {file_data.name}"
+                )
+                return {"id": file_data.id, "success": False}
         return result
 
     def format_request_payload(self, result: dict) -> dict:
