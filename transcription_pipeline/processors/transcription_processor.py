@@ -22,7 +22,7 @@ class TranscriptionProcessor(BaseProcessor):
         :return: Formatted SRT string
         """
         writer = get_writer("srt", None)
-        return writer(result, "dummy")
+        return writer(result, "dummy", {})
 
     def process(self, file_data: FileData) -> dict:
         """Process an audio file for transcription.
