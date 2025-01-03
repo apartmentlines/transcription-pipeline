@@ -27,6 +27,7 @@ dependencies = [
 
 [project.scripts]
 transcription-processor = "transcription_pipeline.main:main"
+transcriber = "transcription_pipeline.transcriber:main"
 
 [project.optional-dependencies]
 dev = [
