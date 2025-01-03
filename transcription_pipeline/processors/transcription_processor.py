@@ -32,7 +32,7 @@ class TranscriptionProcessor(BaseProcessor):
         """
         self.log.info(f"Transcribing {file_data.name}, {file_data.record_name}")
         try:
-            result = self.transcriber.transcribe(file_data.path)
+            result = self.transcriber.transcribe(file_data.local_path)
             self.log.debug(f"Transcription successful for {file_data.id}")
             self.log.debug(f"Language detected: {result.get('language')}")
             self.log.debug(f"Number of segments: {len(result.get('segments', []))}")
