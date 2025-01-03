@@ -1,17 +1,88 @@
+import os
+from unittest.mock import Mock, patch
 from transcription_pipeline.processors.transcription_processor import (
     TranscriptionProcessor,
 )
 
 
-def test_transcription_processor_instantiation():
+def test_transcription_processor_instantiation(mock_transcriber):
     processor = TranscriptionProcessor()
     assert hasattr(processor, "process")
+    assert hasattr(processor, "_format_transcription")
+    assert hasattr(processor, "transcriber")
 
 
-def test_transcription_processor_process(file_data):
+def test_format_transcription(mock_transcriber, mock_get_writer, sample_srt):
+    mock_writer = Mock()
+    mock_get_writer.return_value = mock_writer
+
+    with patch("tempfile.NamedTemporaryFile") as mock_temp:
+        mock_temp.return_value.__enter__.return_value.read.return_value = sample_srt
+        temp_file = mock_temp.return_value.__enter__.return_value
+        temp_file.name = "/tmp/mock_temp.srt"
+
+        processor = TranscriptionProcessor()
+        result = processor._format_transcription(
+            {"segments": [{"text": "Test subtitle"}]}
+        )
+
+        assert result == sample_srt
+        mock_writer.assert_called_once()
+        mock_get_writer.assert_called_once_with(
+            "srt", os.path.dirname("/tmp/mock_temp.srt")
+        )
+
+
+def test_transcription_processor_process(
+    mock_transcriber,
+    mock_get_writer,
+    file_data,
+    sample_transcription_result,
+    sample_srt,
+):
+    # Setup mocks
+    mock_transcriber_instance = mock_transcriber.return_value
+    mock_transcriber_instance.transcribe.return_value = sample_transcription_result
+
+    mock_writer = Mock()
+    mock_get_writer.return_value = mock_writer
+
+    with patch("tempfile.NamedTemporaryFile") as mock_temp:
+        mock_temp.return_value.__enter__.return_value.read.return_value = sample_srt
+        temp_file = mock_temp.return_value.__enter__.return_value
+        temp_file.name = "/tmp/mock_temp.srt"
+
+        # Create processor and process file
+        processor = TranscriptionProcessor()
+        result = processor.process(file_data)
+
+        # Verify transcription was called
+        mock_transcriber_instance.transcribe.assert_called_once_with(
+            file_data.local_path
+        )
+
+        # Verify writer was configured correctly
+        mock_get_writer.assert_called_once_with(
+            "srt", os.path.dirname("/tmp/mock_temp.srt")
+        )
+
+        # Verify result structure
+        assert result["id"] == file_data.id
+        assert result["success"] is True
+        assert result["transcription"] == sample_srt
+        assert result["metadata"]["language"] == sample_transcription_result["language"]
+        assert result["metadata"]["segments"] == len(
+            sample_transcription_result["segments"]
+        )
+
+
+def test_process_failed_transcription(mock_transcriber, file_data):
+    mock_transcriber_instance = mock_transcriber.return_value
+    mock_transcriber_instance.transcribe.side_effect = Exception("Transcription failed")
+
     processor = TranscriptionProcessor()
     result = processor.process(file_data)
+
     assert result["id"] == "123"
-    assert result["success"] is True
-    assert "transcription" in result
-    assert "metadata" in result
+    assert result["success"] is False
+    assert result["error"] == "Transcription failed"

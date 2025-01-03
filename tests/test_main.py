@@ -22,10 +22,10 @@ from transcription_pipeline.constants import (
 
 class TestTranscriptionPipeline:
     @pytest.fixture
-    def pipeline(self):
+    def pipeline(self, mock_transcriber):
         return TranscriptionPipeline(api_key="test_key", domain="test_domain")
 
-    def test_initialization(self):
+    def test_initialization(self, mock_transcriber):
         # Test with all arguments specified
         pipeline = TranscriptionPipeline(
             api_key="test_key",
@@ -104,7 +104,7 @@ class TestTranscriptionPipeline:
             pipeline.setup_configuration()
             mock_set_env.assert_called_once_with("test_key", "test_domain")
 
-    def test_pipeline_initialization(self):
+    def test_pipeline_initialization(self, mock_transcriber):
         # Test that ProcessingPipeline is initialized with correct values
         pipeline = TranscriptionPipeline(
             api_key="test_key",
@@ -126,7 +126,7 @@ class TestTranscriptionPipeline:
         assert pipeline.pipeline.processor_class == TranscriptionProcessor
         assert pipeline.pipeline.post_processor_class == TranscriptionPostProcessor
 
-    def test_pipeline_initialization_defaults(self):
+    def test_pipeline_initialization_defaults(self, mock_transcriber):
         # Test that ProcessingPipeline is initialized with correct default values
         pipeline = TranscriptionPipeline(api_key="test_key", domain="test_domain")
 
@@ -209,7 +209,7 @@ class TestTranscriptionPipeline:
         mock_run.assert_not_called()
 
     @patch("transcription_pipeline.main.TranscriptionPipeline")
-    def test_main_success(self, mock_pipeline):
+    def test_main_success(self, mock_pipeline, mock_transcriber):
         mock_pipeline_instance = Mock()
         mock_pipeline.return_value = mock_pipeline_instance
 

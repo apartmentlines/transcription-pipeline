@@ -23,7 +23,7 @@ class TranscriptionProcessor(BaseProcessor):
         :param result: Dictionary containing transcription results
         :return: Formatted SRT string
         """
-        with tempfile.NamedTemporaryFile(mode='w+', suffix='.srt', delete=True) as tmp:
+        with tempfile.NamedTemporaryFile(mode="w+", suffix=".srt", delete=True) as tmp:
             options = {
                 "max_line_width": None,
                 "max_line_count": 1,
