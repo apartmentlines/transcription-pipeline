@@ -4,6 +4,10 @@ from download_pipeline_processor.processors.base_post_processor import BasePostP
 from download_pipeline_processor.file_data import FileData
 from transcription_pipeline.utils import post_request
 
+from ..constants import (
+    TRANSCRIPTION_STATE_ACTIVE,
+)
+
 
 class TranscriptionPostProcessor(BasePostProcessor):
     def __init__(self, debug: bool = False):
@@ -40,6 +44,7 @@ class TranscriptionPostProcessor(BasePostProcessor):
             "api_key": self.api_key,
             "id": result["id"],
             "success": result["success"],
+            "transcription_state": TRANSCRIPTION_STATE_ACTIVE,
         }
         if result["success"]:
             data["transcription"] = result["transcription"]
