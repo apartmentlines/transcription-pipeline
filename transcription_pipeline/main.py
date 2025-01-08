@@ -29,6 +29,9 @@ class TranscriptionPipeline:
         api_key: Optional[str] = None,
         domain: Optional[str] = None,
         limit: Optional[int] = None,
+        min_id: Optional[int] = None,
+        max_id: Optional[int] = None,
+        from_s3: bool = False,
         processing_limit: int = DEFAULT_PROCESSING_LIMIT,
         download_queue_size: int = DEFAULT_DOWNLOAD_QUEUE_SIZE,
         download_cache: Path = DEFAULT_DOWNLOAD_CACHE,
@@ -39,6 +42,9 @@ class TranscriptionPipeline:
         self.api_key = api_key
         self.domain = domain
         self.limit = limit
+        self.min_id = min_id
+        self.max_id = max_id
+        self.from_s3 = from_s3
         self.processing_limit = processing_limit
         self.download_queue_size = download_queue_size
         self.download_cache = download_cache
@@ -61,9 +67,14 @@ class TranscriptionPipeline:
         return f"https://{self.domain}/al/transcriptions/retrieve/operator-recordings/{TRANSCRIPTION_STATE_READY}"
 
     def build_retrieve_request_params(self) -> dict:
-        return {
-            "api_key": self.api_key,
-        }
+        params = {"api_key": self.api_key}
+        if self.min_id is not None:
+            params["min_id"] = self.min_id
+        if self.max_id is not None:
+            params["max_id"] = self.max_id
+        if self.from_s3:
+            params["from_s3"] = "1"
+        return params
 
     def retrieve_file_data(self) -> List[dict]:
         url = self.build_retrieve_request_url()
@@ -119,6 +130,21 @@ def parse_arguments() -> argparse.Namespace:
         help="Only transcribe this many files, default unlimited",
     )
     parser.add_argument(
+        "--min-id",
+        type=positive_int,
+        help="Only process transcriptions with ID >= this value",
+    )
+    parser.add_argument(
+        "--max-id",
+        type=positive_int,
+        help="Only process transcriptions with ID <= this value",
+    )
+    parser.add_argument(
+        "--from-s3",
+        action="store_true",
+        help="Download files directly from S3 instead of via HTTP",
+    )
+    parser.add_argument(
         "--api-key",
         type=str,
         help="API key (also can be provided as TRANSCRIPTION_API_KEY environment variable)",
@@ -168,6 +194,9 @@ def main() -> None:
         api_key=api_key,
         domain=domain,
         limit=args.limit,
+        min_id=args.min_id,
+        max_id=args.max_id,
+        from_s3=args.from_s3,
         processing_limit=args.processing_limit,
         download_queue_size=args.download_queue_size,
         download_cache=args.download_cache,
