@@ -26,11 +26,8 @@ def mock_wav_file():
     return mock_file
 
 
-def test_init(tmp_path):
-    test_file = tmp_path / "test.wav"
-    test_file.touch()
-    validator = AudioFileValidator(test_file)
-    assert validator.file_path == test_file
+def test_init():
+    validator = AudioFileValidator()
     assert validator.min_duration == 5
     assert validator.max_duration == 300
 
@@ -43,17 +40,17 @@ def test_validate_file_path_success(tmp_path):
 
 
 def test_validate_file_path_not_found():
+    validator = AudioFileValidator()
     with pytest.raises(FileNotFoundError):
-        AudioFileValidator("nonexistent.wav")
+        validator.validate("nonexistent.wav")
 
 
 def test_open_wave_file(tmp_path, mock_wave_module, mock_wav_file):
     test_file = tmp_path / "test.wav"
     test_file.touch()
     mock_wave_module.open.return_value = mock_wav_file
-
-    validator = AudioFileValidator(test_file, wave_module=mock_wave_module)
-    with validator._open_wave_file() as wav:
+    validator = AudioFileValidator(wave_module=mock_wave_module)
+    with validator._open_wave_file(test_file) as wav:
         assert wav == mock_wav_file
 
     mock_wave_module.open.assert_called_once_with(str(test_file), "r")
@@ -64,9 +61,9 @@ def test_open_wave_file_error(tmp_path, mock_wave_module):
     test_file.touch()
     mock_wave_module.open.side_effect = mock_wave_module.Error("Test error")
 
-    validator = AudioFileValidator(test_file, wave_module=mock_wave_module)
+    validator = AudioFileValidator(wave_module=mock_wave_module)
     with pytest.raises(AudioFileLengthError):
-        validator._open_wave_file()
+        validator._open_wave_file(test_file)
 
 
 def test_calculate_duration(tmp_path, mock_wav_file):
@@ -82,9 +79,8 @@ def test_get_duration(tmp_path, mock_wave_module, mock_wav_file):
     test_file = tmp_path / "test.wav"
     test_file.touch()
     mock_wave_module.open.return_value = mock_wav_file
-
-    validator = AudioFileValidator(test_file, wave_module=mock_wave_module)
-    duration = validator.get_duration()
+    validator = AudioFileValidator(wave_module=mock_wave_module)
+    duration = validator.get_duration(test_file)
     assert duration == 3.0
 
 
@@ -94,9 +90,9 @@ def test_validate_success(tmp_path, mock_wave_module, mock_wav_file):
     mock_wave_module.open.return_value = mock_wav_file
 
     validator = AudioFileValidator(
-        test_file, min_duration=2.0, max_duration=4.0, wave_module=mock_wave_module
+        min_duration=2.0, max_duration=4.0, wave_module=mock_wave_module
     )
-    validator.validate()  # Should not raise any exceptions
+    validator.validate(test_file)  # Should not raise any exceptions
 
 
 def test_validate_too_short(tmp_path, mock_wave_module, mock_wav_file):
@@ -105,10 +101,10 @@ def test_validate_too_short(tmp_path, mock_wave_module, mock_wav_file):
     mock_wave_module.open.return_value = mock_wav_file
 
     validator = AudioFileValidator(
-        test_file, min_duration=4.0, max_duration=5.0, wave_module=mock_wave_module
+        min_duration=4.0, max_duration=5.0, wave_module=mock_wave_module
     )
     with pytest.raises(AudioFileLengthError, match="too short"):
-        validator.validate()
+        validator.validate(test_file)
 
 
 def test_validate_too_long(tmp_path, mock_wave_module, mock_wav_file):
@@ -117,10 +113,10 @@ def test_validate_too_long(tmp_path, mock_wave_module, mock_wav_file):
     mock_wave_module.open.return_value = mock_wav_file
 
     validator = AudioFileValidator(
-        test_file, min_duration=1.0, max_duration=2.0, wave_module=mock_wave_module
+        min_duration=1.0, max_duration=2.0, wave_module=mock_wave_module
     )
     with pytest.raises(AudioFileLengthError, match="too long"):
-        validator.validate()
+        validator.validate(test_file)
 
 
 def test_parse_arguments():
@@ -155,12 +151,11 @@ def test_main_success(tmp_path, capsys, mock_wave_module, mock_wav_file):
             mock_validator_class.return_value = mock_validator_instance
             main()
             mock_validator_class.assert_called_once_with(
-                str(test_file),
                 min_duration=MIN_AUDIO_DURATION,
                 max_duration=MAX_AUDIO_DURATION,
                 debug=False,
             )
-            mock_validator_instance.validate.assert_called_once()
+            mock_validator_instance.validate.assert_called_once_with(str(test_file))
             captured = capsys.readouterr()
             assert captured.err == ""
 

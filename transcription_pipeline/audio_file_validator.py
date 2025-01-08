@@ -35,14 +35,12 @@ class AudioFileValidator:
 
     def __init__(
         self,
-        file_path: Union[str, Path],
         min_duration: float = MIN_AUDIO_DURATION,
         max_duration: float = MAX_AUDIO_DURATION,
         debug: bool = False,
         wave_module: Any = wave,
     ) -> None:
         self.log = Logger(self.__class__.__name__, debug=debug)
-        self.file_path = self._validate_file_path(file_path)
         self.min_duration = min_duration
         self.max_duration = max_duration
         self.wave_module = wave_module
@@ -61,14 +59,15 @@ class AudioFileValidator:
         self.log.debug(f"Validated file path: {path}")
         return path
 
-    def _open_wave_file(self) -> Any:
+    def _open_wave_file(self, file_path: Path) -> Any:
         """Open and return wave file handle.
 
+        :param file_path: Path to the WAV file
         :return: Wave file handle
         :raises AudioFileLengthError: If file is invalid or unreadable
         """
         try:
-            return self.wave_module.open(str(self.file_path), "r")
+            return self.wave_module.open(str(file_path), "r")
         except self.wave_module.Error as e:
             self.log.error(f"Failed to read WAV file: {e}")
             raise AudioFileLengthError(e)
@@ -84,25 +83,29 @@ class AudioFileValidator:
         """
         return wav_file.getnframes() / wav_file.getframerate()
 
-    def get_duration(self) -> float:
+    def get_duration(self, file_path: Path) -> float:
         """Calculate duration of WAV file in seconds.
 
+        :param file_path: Path to the WAV file
         :return: Duration in seconds
         :raises AudioFileLengthError: If file is invalid or unreadable
         """
-        self.log.debug(f"Getting duration for {self.file_path}")
-        with self._open_wave_file() as wav:
+        self.log.debug(f"Getting duration for {file_path}")
+        with self._open_wave_file(file_path) as wav:
             duration = self._calculate_duration(wav)
             self.log.debug(f"Calculated duration: {duration:.2f}s")
             return duration
 
-    def validate(self) -> None:
+    def validate(self, file_path: Union[str, Path]) -> None:
         """Validate the audio file meets all requirements.
 
+        :param file_path: Path to the audio file to validate
+        :raises FileNotFoundError: If file doesn't exist
         :raises AudioFileLengthError: If file duration is outside allowed range
         """
-        self.log.debug(f"Validating audio file: {self.file_path}")
-        duration = self.get_duration()
+        validated_path = self._validate_file_path(file_path)
+        self.log.debug(f"Validating audio file: {validated_path}")
+        duration = self.get_duration(validated_path)
         if duration < self.min_duration:
             msg = (
                 f"Audio file too short: {duration:.2f}s (minimum: {self.min_duration}s)"
@@ -150,12 +153,11 @@ def main() -> None:
     args = parse_arguments()
     try:
         validator = AudioFileValidator(
-            args.file,
             min_duration=args.min_duration,
             max_duration=args.max_duration,
             debug=args.debug,
         )
-        validator.validate()
+        validator.validate(args.file)
     except (FileNotFoundError, AudioFileLengthError) as e:
         print(f"Error: {str(e)}")
         sys.exit(1)

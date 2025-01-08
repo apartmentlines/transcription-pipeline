@@ -4,6 +4,9 @@ from typing import Optional, List
 from copy import deepcopy
 from download_pipeline_processor.processing_pipeline import ProcessingPipeline
 from download_pipeline_processor.logger import Logger
+from transcription_pipeline.processors.transcription_pre_processor import (
+    TranscriptionPreProcessor,
+)
 from transcription_pipeline.processors.transcription_processor import (
     TranscriptionProcessor,
 )
@@ -55,6 +58,7 @@ class TranscriptionPipeline:
 
     def _initialize_pipeline(self) -> ProcessingPipeline:
         return ProcessingPipeline(
+            pre_processor_class=TranscriptionPreProcessor,
             processor_class=TranscriptionProcessor,
             post_processor_class=TranscriptionPostProcessor,
             processing_limit=self.processing_limit,

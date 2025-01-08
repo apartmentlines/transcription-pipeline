@@ -2,6 +2,9 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, Mock
 from download_pipeline_processor.processing_pipeline import ProcessingPipeline
+from transcription_pipeline.processors.transcription_pre_processor import (
+    TranscriptionPreProcessor,
+)
 from transcription_pipeline.processors.transcription_processor import (
     TranscriptionProcessor,
 )
@@ -123,6 +126,7 @@ class TestTranscriptionPipeline:
         assert pipeline.pipeline.download_cache == Path("/tmp/test")
         assert pipeline.pipeline.simulate_downloads is True
         assert pipeline.pipeline.debug is True
+        assert pipeline.pipeline.pre_processor_class == TranscriptionPreProcessor
         assert pipeline.pipeline.processor_class == TranscriptionProcessor
         assert pipeline.pipeline.post_processor_class == TranscriptionPostProcessor
 
@@ -137,6 +141,7 @@ class TestTranscriptionPipeline:
         assert pipeline.pipeline.download_cache == DEFAULT_DOWNLOAD_CACHE
         assert pipeline.pipeline.simulate_downloads is False
         assert pipeline.pipeline.debug is False
+        assert pipeline.pipeline.pre_processor_class == TranscriptionPreProcessor
         assert pipeline.pipeline.processor_class == TranscriptionProcessor
         assert pipeline.pipeline.post_processor_class == TranscriptionPostProcessor
 
