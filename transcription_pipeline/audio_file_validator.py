@@ -101,7 +101,7 @@ class AudioFileValidator:
 
         :raises AudioFileLengthError: If file duration is outside allowed range
         """
-        self.log.info(f"Validating audio file: {self.file_path}")
+        self.log.debug(f"Validating audio file: {self.file_path}")
         duration = self.get_duration()
         if duration < self.min_duration:
             msg = (
@@ -115,7 +115,7 @@ class AudioFileValidator:
             )
             self.log.error(msg)
             raise AudioFileLengthError(msg)
-        self.log.info(f"Audio file validation successful, duration: {duration:.2f}s")
+        self.log.debug(f"Audio file validation successful, duration: {duration:.2f}s")
 
 
 def parse_arguments() -> argparse.Namespace:
