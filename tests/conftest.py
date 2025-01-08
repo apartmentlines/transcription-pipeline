@@ -1,6 +1,21 @@
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 from download_pipeline_processor.file_data import FileData
+
+
+@pytest.fixture(autouse=True)
+def mock_dependencies():
+    """Mock all heavy dependencies for faster test execution."""
+    mock_np = Mock()
+    mock_whisperx = Mock()
+    mock_torch = Mock()
+    mock_torch.cuda.is_available.return_value = False
+
+    with patch(
+        "transcription_pipeline.transcriber._import_dependencies"
+    ) as mock_import:
+        mock_import.return_value = (mock_np, mock_whisperx, mock_torch)
+        yield mock_import
 
 
 @pytest.fixture

@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
 
 import argparse
-from pathlib import Path
-from typing import Optional, Union, Dict, Any
-import numpy as np
-import whisperx
-from whisperx.utils import get_writer
-import torch
 import os
 import sys
-
+from pathlib import Path
+from typing import Optional, Union, Dict, Any, TYPE_CHECKING
+from whisperx.utils import get_writer
 from download_pipeline_processor.logger import Logger
 from .constants import (
     DEFAULT_WHISPER_MODEL,
@@ -18,6 +14,21 @@ from .constants import (
     DEFAULT_OUTPUT_FORMAT,
     DEFAULT_BATCH_SIZE,
 )
+
+if TYPE_CHECKING:
+    import numpy as np
+    import whisperx  # noqa : F401
+    import torch  # noqa : F401
+
+
+def _import_dependencies():
+    """Lazily import heavy dependencies only when needed."""
+    global np, whisperx, torch
+    import numpy as np
+    import whisperx
+    import torch
+
+    return np, whisperx, torch
 
 
 class TranscriptionError(Exception):
@@ -43,13 +54,19 @@ class Transcriber:
         whisper_model_name: str = DEFAULT_WHISPER_MODEL,
         diarization_model_name: Optional[str] = None,
         debug: bool = False,
-        whisperx_module: Any = whisperx,
+        whisperx_module: Any = None,
         device: Optional[str] = None,
         compute_type: Optional[str] = None,
         auth_token: Optional[str] = None,
     ):
         self.log = Logger(self.__class__.__name__, debug=debug)
-        self.whisperx = whisperx_module
+
+        if whisperx_module is None:
+            _, self.whisperx, torch = _import_dependencies()  # noqa : F401
+        else:
+            self.whisperx = whisperx_module
+            _, _, torch = _import_dependencies()
+
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.compute_type = compute_type or (
             "float16" if torch.cuda.is_available() else "int8"
@@ -106,7 +123,7 @@ class Transcriber:
             raise FileNotFoundError(f"Input file not found: {path}")
         return path
 
-    def _load_audio(self, input_file: Union[str, Path]) -> np.ndarray:
+    def _load_audio(self, input_file: Union[str, Path]) -> "np.ndarray":
         """Load audio file into memory using WhisperX.
 
         :param input_file: Path to the audio file
@@ -114,17 +131,19 @@ class Transcriber:
         """
         self.log.debug(f"Loading audio file: {input_file}")
         try:
+            _, np, _ = _import_dependencies()
             return self.whisperx.load_audio(input_file)
         except Exception as e:
             self.log.error(f"Failed to load audio file: {str(e)}")
             raise TranscriptionError(e) from e
 
-    def _perform_base_transcription(self, audio: np.ndarray) -> Dict[str, Any]:
+    def _perform_base_transcription(self, audio: "np.ndarray") -> Dict[str, Any]:
         """Perform initial transcription of audio using WhisperX.
 
         :param audio: Numpy array containing audio data
         :return: Dictionary containing transcription results and metadata
         """
+        np, _, _ = _import_dependencies()
         self.log.info("Performing base transcription")
         self.log.debug(f"Using batch size: {DEFAULT_BATCH_SIZE}")
         try:
@@ -138,7 +157,7 @@ class Transcriber:
         return result
 
     def _align_transcription(
-        self, segments: list, audio: np.ndarray, language: str
+        self, segments: list, audio: "np.ndarray", language: str
     ) -> Dict[str, Any]:
         """Align transcription segments with audio timing.
 
@@ -147,6 +166,7 @@ class Transcriber:
         :param language: Detected language code
         :return: Dictionary containing aligned transcription results
         """
+        np, _, _ = _import_dependencies()
         self.log.info("Aligning transcription with audio")
         self.log.debug(f"Loading alignment model for language: {language}")
         model_a, metadata = self.whisperx.load_align_model(
@@ -172,7 +192,7 @@ class Transcriber:
         return aligned_result
 
     def _perform_diarization(
-        self, audio: np.ndarray, num_speakers: int
+        self, audio: "np.ndarray", num_speakers: int
     ) -> Optional[Dict[str, Any]]:
         """Perform speaker diarization on the audio.
 
@@ -180,6 +200,7 @@ class Transcriber:
         :param num_speakers: Expected number of speakers in the audio
         :return: Dictionary containing diarization results or None if diarization fails
         """
+        np, _, _ = _import_dependencies()
         self.log.info(f"Performing diarization with {num_speakers} speakers")
         try:
             return self.diarization_model(audio, num_speakers=num_speakers)
@@ -214,7 +235,7 @@ class Transcriber:
         return result
 
     def _handle_diarization(
-        self, audio: np.ndarray, aligned_result: Dict[str, Any], num_speakers: int
+        self, audio: "np.ndarray", aligned_result: Dict[str, Any], num_speakers: int
     ) -> Dict[str, Any]:
         """Handle the complete diarization workflow.
 
