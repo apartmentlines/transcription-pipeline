@@ -64,23 +64,39 @@ class TranscriptionPostProcessor(BasePostProcessor):
                     f"Skipping post-processing for {file_data.name} due to transient error"
                 )
                 raise TransientPipelineError(file_data.error.error)
-            return {"id": file_data.id, "success": False}
+            return {
+                "id": file_data.id,
+                "success": False,
+                "metadata": {
+                    "error_stage": file_data.error.stage,
+                    "error": str(file_data.error.error),
+                },
+            }
         if result["success"]:
             if not result["transcription"]:
-                self.log.warning(f"No transcription found for {file_data.name}")
-                return {"id": file_data.id, "success": False}
+                message = f"No transcription found for {file_data.name}"
+                self.log.warning(message)
+                return {
+                    "id": file_data.id,
+                    "success": False,
+                    "metadata": {
+                        "error_stage": "process",
+                        "error": message,
+                    },
+                }
         return result
 
     def format_request_payload(self, result: dict) -> dict:
+        metadata = result.get("metadata", {})
         data = {
             "api_key": self.api_key,
             "id": result["id"],
             "success": result["success"],
+            "metadata": json.dumps(metadata),
         }
         if result["success"]:
             data["transcription_state"] = TRANSCRIPTION_STATE_ACTIVE
             data["transcription"] = result["transcription"]
-            data["metadata"] = json.dumps(result["metadata"])
         return data
 
     def build_update_url(self) -> str:

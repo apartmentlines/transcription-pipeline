@@ -4,6 +4,7 @@ import os
 
 from unittest.mock import patch, Mock
 from download_pipeline_processor.error import TransientPipelineError
+from download_pipeline_processor.file_data import FileData
 from transcription_pipeline.transcriber import TranscriptionError
 from transcription_pipeline.processors.transcription_post_processor import (
     TranscriptionPostProcessor,
@@ -44,7 +45,11 @@ def test_transcription_post_processor_post_process_failure(
 ):
     mock_post_request.side_effect = Exception("Post request failed")
     processor = TranscriptionPostProcessor()
-    result = {"id": "123", "success": False}
+    result = {
+        "id": "123",
+        "success": False,
+        "metadata": {"error_stage": "process", "error": "Test error"},
+    }
     processor.post_process(result, file_data)
     mock_post_request.assert_called_once()
 
@@ -67,10 +72,15 @@ def test_determine_result_state_with_file_data_error(file_data):
         "id": "123",
         "success": True,
     }
-    file_data.add_error("download", "Download failed")
+    error_msg = "Download failed"
+    file_data.add_error("download", error_msg)
 
-    state = processor.determine_result_state(result, file_data)
-    assert state == {"id": "123", "success": False}
+    result_state = processor.determine_result_state(result, file_data)
+    assert result_state == {
+        "id": file_data.id,
+        "success": False,
+        "metadata": {"error_stage": "download", "error": error_msg},
+    }
 
 
 def test_determine_result_state_with_missing_transcription_error(file_data):
@@ -80,8 +90,13 @@ def test_determine_result_state_with_missing_transcription_error(file_data):
         "success": True,
         "transcription": "",
     }
-    state = processor.determine_result_state(result, file_data)
-    assert state == {"id": "123", "success": False}
+    result_state = processor.determine_result_state(result, file_data)
+    expected_message = f"No transcription found for {file_data.name}"
+    assert result_state == {
+        "id": "123",
+        "success": False,
+        "metadata": {"error_stage": "process", "error": expected_message},
+    }
 
 
 @patch.dict(
@@ -116,12 +131,14 @@ def test_format_request_payload_failure():
     result = {
         "id": "123",
         "success": False,
+        "metadata": {"error_stage": "process", "error": "Test error"},
     }
     data = processor.format_request_payload(result)
     assert data == {
         "api_key": "test_api_key",
         "id": "123",
         "success": False,
+        "metadata": '{"error_stage": "process", "error": "Test error"}',
     }
 
 
@@ -221,14 +238,29 @@ def test_is_transient_processing_error(file_data):
 def test_determine_result_state_transient_error(file_data):
     processor = TranscriptionPostProcessor()
 
-    file_data.add_error("download", requests.exceptions.ConnectionError())
+    # Test transient download error
+    download_file = FileData(id="123", name="test_file", url="http://example.com/file")
+    download_file.add_error("download", requests.exceptions.ConnectionError())
     with pytest.raises(TransientPipelineError):
-        processor.determine_result_state(None, file_data)
+        processor.determine_result_state(None, download_file)
 
-    file_data.add_error("process", ValueError())
+    # Test transient processing error
+    process_file = FileData(id="123", name="test_file", url="http://example.com/file")
+    process_file.add_error("process", ValueError())
     with pytest.raises(TransientPipelineError):
-        processor.determine_result_state(None, file_data)
+        processor.determine_result_state(None, process_file)
 
-    file_data.add_error("process", TranscriptionError(ValueError()))
-    result_state = processor.determine_result_state(None, file_data)
-    assert result_state == {"id": file_data.id, "success": False}
+    # Test non-transient error
+    non_transient_file = FileData(
+        id="123", name="test_file", url="http://example.com/file"
+    )
+    non_transient_file.add_error("process", TranscriptionError(ValueError()))
+    result_state = processor.determine_result_state(None, non_transient_file)
+    assert result_state == {
+        "id": non_transient_file.id,
+        "success": False,
+        "metadata": {
+            "error_stage": "process",
+            "error": str(non_transient_file.error.error),
+        },
+    }
