@@ -88,6 +88,7 @@ def test_process_failed_transcription(mock_transcriber, file_data):
 
     assert str(exc_info.value) == "Transcription failed"
 
+
 def test_process_propagates_transcription_error(mock_transcriber, file_data):
     mock_transcriber_instance = mock_transcriber.return_value
     original_error = TranscriptionError(ValueError("Invalid audio format"))
@@ -98,6 +99,7 @@ def test_process_propagates_transcription_error(mock_transcriber, file_data):
         processor.process(file_data)
 
     assert exc_info.value is original_error
+
 
 def test_process_propagates_value_error(mock_transcriber, file_data):
     mock_transcriber_instance = mock_transcriber.return_value

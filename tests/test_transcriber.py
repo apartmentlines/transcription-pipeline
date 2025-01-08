@@ -4,11 +4,13 @@ from unittest.mock import Mock, patch
 from transcription_pipeline.transcriber import TranscriptionError, Transcriber
 from transcription_pipeline.constants import DEFAULT_WHISPER_MODEL, DEFAULT_BATCH_SIZE
 
+
 # Mock cuda availability for all tests
 @pytest.fixture(autouse=True)
 def mock_cuda():
     with patch("torch.cuda.is_available", return_value=False):
         yield
+
 
 @pytest.fixture
 def mock_transcription_result():
@@ -20,12 +22,13 @@ def mock_transcription_result():
                 "end": 1.0,
                 "words": [
                     {"word": "Hello", "start": 0.0, "end": 0.5},
-                    {"word": "world", "start": 0.5, "end": 1.0}
-                ]
+                    {"word": "world", "start": 0.5, "end": 1.0},
+                ],
             }
         ],
-        "language": "en"
+        "language": "en",
     }
+
 
 @pytest.fixture
 def mock_alignment_result():
@@ -37,24 +40,17 @@ def mock_alignment_result():
                 "end": 1.0,
                 "words": [
                     {"word": "Hello", "start": 0.0, "end": 0.5, "score": 0.9},
-                    {"word": "world", "start": 0.5, "end": 1.0, "score": 0.95}
-                ]
+                    {"word": "world", "start": 0.5, "end": 1.0, "score": 0.95},
+                ],
             }
         ],
-        "language": "en"
+        "language": "en",
     }
+
 
 @pytest.fixture
 def mock_diarization_result():
-    return {
-        "segments": [
-            {
-                "speaker": "SPEAKER_0",
-                "start": 0.0,
-                "end": 1.0
-            }
-        ]
-    }
+    return {"segments": [{"speaker": "SPEAKER_0", "start": 0.0, "end": 1.0}]}
 
 
 def test_transcription_error_message():
@@ -77,7 +73,7 @@ def test_init_custom_values():
         whisper_model_name="custom-model",
         device="cpu",
         compute_type="int8",
-        whisperx_module=mock_whisperx
+        whisperx_module=mock_whisperx,
     )
     assert transcriber.whisper_model_name == "custom-model"
     assert transcriber.device == "cpu"
@@ -88,23 +84,21 @@ def test_initialize_whisper_model():
     mock_whisperx = Mock()
     transcriber = Transcriber(whisperx_module=mock_whisperx)
     mock_whisperx.load_model.assert_called_once_with(
-        DEFAULT_WHISPER_MODEL,
-        transcriber.device,
-        compute_type=transcriber.compute_type
+        DEFAULT_WHISPER_MODEL, transcriber.device, compute_type=transcriber.compute_type
     )
 
 
 def test_initialize_diarization_model_with_model():
     mock_whisperx = Mock()
-    transcriber = Transcriber(
+    Transcriber(
         diarization_model_name="pyannote/speaker-diarization",
         whisperx_module=mock_whisperx,
-        auth_token="test-token"
+        auth_token="test-token",
     )
     mock_whisperx.DiarizationPipeline.assert_called_once_with(
         model_name="pyannote/speaker-diarization",
         use_auth_token="test-token",
-        device="cpu"
+        device="cpu",
     )
 
 
@@ -116,13 +110,12 @@ def test_initialize_diarization_model_without_model():
 
 def test_initialize_diarization_model_error():
     mock_whisperx = Mock()
-    mock_whisperx.DiarizationPipeline.side_effect = Exception("Pipeline initialization failed")
+    mock_whisperx.DiarizationPipeline.side_effect = Exception(
+        "Pipeline initialization failed"
+    )
 
     with pytest.raises(Exception, match="Pipeline initialization failed"):
-        Transcriber(
-            diarization_model_name="test-model",
-            whisperx_module=mock_whisperx
-        )
+        Transcriber(diarization_model_name="test-model", whisperx_module=mock_whisperx)
 
 
 def test_validate_input_file(tmp_path):
@@ -175,7 +168,7 @@ def test_perform_base_transcription():
 
     # Verify the arguments
     assert np.array_equal(args[0], test_audio)
-    assert kwargs.get('batch_size') == DEFAULT_BATCH_SIZE
+    assert kwargs.get("batch_size") == DEFAULT_BATCH_SIZE
 
 
 def test_perform_base_transcription_error():
@@ -197,11 +190,7 @@ def test_align_transcription():
 
     transcriber = Transcriber(whisperx_module=mock_whisperx)
     test_audio = np.array([1.0, 2.0])
-    result = transcriber._align_transcription(
-        [{"text": "test"}],
-        test_audio,
-        "en"
-    )
+    result = transcriber._align_transcription([{"text": "test"}], test_audio, "en")
 
     assert "segments" in result
     mock_whisperx.load_align_model.assert_called_once()
@@ -217,7 +206,7 @@ def test_align_transcription():
     assert args[2] == mock_whisperx.load_align_model.return_value[1]
     assert np.array_equal(args[3], test_audio)
     assert args[4] == "cpu"
-    assert kwargs.get('return_char_alignments') is False
+    assert kwargs.get("return_char_alignments") is False
 
 
 def test_align_transcription_load_model_error():
@@ -226,11 +215,7 @@ def test_align_transcription_load_model_error():
 
     transcriber = Transcriber(whisperx_module=mock_whisperx)
     with pytest.raises(Exception, match="Model load failed"):
-        transcriber._align_transcription(
-            [{"text": "test"}],
-            np.array([1.0, 2.0]),
-            "en"
-        )
+        transcriber._align_transcription([{"text": "test"}], np.array([1.0, 2.0]), "en")
 
 
 def test_align_transcription_align_error():
@@ -240,11 +225,7 @@ def test_align_transcription_align_error():
 
     transcriber = Transcriber(whisperx_module=mock_whisperx)
     with pytest.raises(TranscriptionError):
-        transcriber._align_transcription(
-            [{"text": "test"}],
-            np.array([1.0, 2.0]),
-            "en"
-        )
+        transcriber._align_transcription([{"text": "test"}], np.array([1.0, 2.0]), "en")
 
 
 def test_perform_diarization():
@@ -279,7 +260,7 @@ def test_assign_speakers():
     transcriber = Transcriber(whisperx_module=mock_whisperx)
     result = transcriber._assign_speakers(
         {"segments": [{"speaker": "SPEAKER_1"}]},
-        {"segments": [{"text": "test"}], "language": "en"}
+        {"segments": [{"text": "test"}], "language": "en"},
     )
 
     assert "segments" in result
@@ -289,30 +270,29 @@ def test_assign_speakers():
 
 def test_assign_speakers_error():
     mock_whisperx = Mock()
-    mock_whisperx.assign_word_speakers.side_effect = Exception("Speaker assignment failed")
+    mock_whisperx.assign_word_speakers.side_effect = Exception(
+        "Speaker assignment failed"
+    )
 
     transcriber = Transcriber(whisperx_module=mock_whisperx)
     with pytest.raises(TranscriptionError):
         transcriber._assign_speakers(
             {"segments": [{"speaker": "SPEAKER_1"}]},
-            {"segments": [{"text": "test"}], "language": "en"}
+            {"segments": [{"text": "test"}], "language": "en"},
         )
 
 
 def test_handle_diarization_with_model():
     mock_whisperx = Mock()
     transcriber = Transcriber(
-        whisperx_module=mock_whisperx,
-        diarization_model_name="test-model"
+        whisperx_module=mock_whisperx, diarization_model_name="test-model"
     )
 
     transcriber._perform_diarization = Mock(return_value={"segments": []})
     transcriber._assign_speakers = Mock(return_value={"segments": [], "language": "en"})
 
     result = transcriber._handle_diarization(
-        np.array([1.0, 2.0]),
-        {"segments": [], "language": "en"},
-        2
+        np.array([1.0, 2.0]), {"segments": [], "language": "en"}, 2
     )
 
     assert "segments" in result
@@ -330,8 +310,7 @@ def test_handle_diarization_without_model():
 def test_handle_diarization_empty_segments():
     mock_whisperx = Mock()
     transcriber = Transcriber(
-        whisperx_module=mock_whisperx,
-        diarization_model_name="test-model"
+        whisperx_module=mock_whisperx, diarization_model_name="test-model"
     )
 
     transcriber._perform_diarization = Mock(return_value={"segments": []})
@@ -340,7 +319,7 @@ def test_handle_diarization_empty_segments():
     result = transcriber._handle_diarization(
         np.array([1.0, 2.0]),
         {"segments": [], "language": "en"},
-        0  # Edge case: no speakers
+        0,  # Edge case: no speakers
     )
 
     assert result["segments"] == []
@@ -348,16 +327,13 @@ def test_handle_diarization_empty_segments():
 
 def test_save_output(tmp_path):
     mock_writer = Mock()
-    with patch('transcription_pipeline.transcriber.get_writer', return_value=mock_writer):
+    with patch(
+        "transcription_pipeline.transcriber.get_writer", return_value=mock_writer
+    ):
         transcriber = Transcriber()
         result = {"segments": []}
 
-        transcriber._save_output(
-            result,
-            "test.wav",
-            tmp_path,
-            "srt"
-        )
+        transcriber._save_output(result, "test.wav", tmp_path, "srt")
 
         mock_writer.assert_called_once_with(
             {"segments": []},
@@ -366,7 +342,7 @@ def test_save_output(tmp_path):
                 "max_line_width": None,
                 "max_line_count": None,
                 "highlight_words": False,
-            }
+            },
         )
 
 
@@ -381,17 +357,14 @@ def test_save_output_writer_error(tmp_path):
     mock_writer = Mock()
     mock_writer.side_effect = Exception("Write failed")
 
-    with patch('transcription_pipeline.transcriber.get_writer', return_value=mock_writer):
+    with patch(
+        "transcription_pipeline.transcriber.get_writer", return_value=mock_writer
+    ):
         transcriber = Transcriber()
         result = {"segments": []}
 
         with pytest.raises(Exception, match="Write failed"):
-            transcriber._save_output(
-                result,
-                "test.wav",
-                tmp_path,
-                "srt"
-            )
+            transcriber._save_output(result, "test.wav", tmp_path, "srt")
 
 
 def test_transcribe_integration_error_propagation(tmp_path, mock_transcription_result):
@@ -407,8 +380,7 @@ def test_transcribe_integration_error_propagation(tmp_path, mock_transcription_r
     mock_model.transcribe.return_value = mock_transcription_result
 
     transcriber = Transcriber(
-        whisperx_module=mock_whisperx,
-        diarization_model_name="test_model"
+        whisperx_module=mock_whisperx, diarization_model_name="test_model"
     )
     transcriber.model = mock_model
 
@@ -417,7 +389,9 @@ def test_transcribe_integration_error_propagation(tmp_path, mock_transcription_r
     assert "Alignment failed" in str(exc.value)
 
 
-def test_transcribe_integration(tmp_path, mock_transcription_result, mock_alignment_result, mock_diarization_result):
+def test_transcribe_integration(
+    tmp_path, mock_transcription_result, mock_alignment_result, mock_diarization_result
+):
     # Create test file
     test_file = tmp_path / "test.wav"
     test_file.touch()
@@ -434,24 +408,25 @@ def test_transcribe_integration(tmp_path, mock_transcription_result, mock_alignm
 
     # Setup final result structure
     final_result = {
-        "segments": [{
-            "text": "Hello world",
-            "start": 0.0,
-            "end": 1.0,
-            "speaker": "SPEAKER_0",
-            "words": [
-                {"word": "Hello", "start": 0.0, "end": 0.5, "score": 0.9},
-                {"word": "world", "start": 0.5, "end": 1.0, "score": 0.95}
-            ]
-        }],
-        "language": "en"
+        "segments": [
+            {
+                "text": "Hello world",
+                "start": 0.0,
+                "end": 1.0,
+                "speaker": "SPEAKER_0",
+                "words": [
+                    {"word": "Hello", "start": 0.0, "end": 0.5, "score": 0.9},
+                    {"word": "world", "start": 0.5, "end": 1.0, "score": 0.95},
+                ],
+            }
+        ],
+        "language": "en",
     }
     mock_whisperx.assign_word_speakers.return_value = final_result
 
     # Create and configure transcriber
     transcriber = Transcriber(
-        whisperx_module=mock_whisperx,
-        diarization_model_name="test_model"
+        whisperx_module=mock_whisperx, diarization_model_name="test_model"
     )
     transcriber.model = mock_model
     transcriber.diarization_model = Mock(return_value=mock_diarization_result)

@@ -51,7 +51,9 @@ class Transcriber:
         self.log = Logger(self.__class__.__name__, debug=debug)
         self.whisperx = whisperx_module
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.compute_type = compute_type or ("float16" if torch.cuda.is_available() else "int8")
+        self.compute_type = compute_type or (
+            "float16" if torch.cuda.is_available() else "int8"
+        )
         self.whisper_model_name = whisper_model_name
         self.diarization_model_name = diarization_model_name
         self.auth_token = auth_token or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
@@ -199,7 +201,9 @@ class Transcriber:
             f"Processing {len(diarization_segments['segments'])} diarization segments"
         )
         try:
-            result = self.whisperx.assign_word_speakers(diarization_segments, aligned_result)
+            result = self.whisperx.assign_word_speakers(
+                diarization_segments, aligned_result
+            )
         except Exception as e:
             self.log.error(f"Failed to assign speaker labels: {str(e)}")
             raise TranscriptionError(e) from e

@@ -11,6 +11,10 @@ DEFAULT_RETRY_ATTEMPTS = 3
 DEFAULT_RETRY_BACKOFF = 0.5  # in seconds
 DOWNLOAD_TIMEOUT = 30  # in seconds
 
+# Audio validation constants
+MIN_AUDIO_DURATION = 5  # seconds
+MAX_AUDIO_DURATION = 300  # seconds
+
 # Transcription model constants
 DEFAULT_WHISPER_MODEL = "large-v2"
 DEFAULT_NUM_SPEAKERS = 2

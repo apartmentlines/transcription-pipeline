@@ -83,7 +83,9 @@ class TranscriptionPipeline:
             params = self.build_retrieve_request_params()
             log_params = deepcopy(params)
             log_params["api_key"] = "REDACTED"
-            self.log.debug(f"Retrieving file data from URL: {url}, params: {log_params}")
+            self.log.debug(
+                f"Retrieving file data from URL: {url}, params: {log_params}"
+            )
             response = get_request(url, params)
             resp_json = response.json()
             if resp_json.get("success"):

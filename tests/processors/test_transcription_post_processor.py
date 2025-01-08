@@ -1,5 +1,10 @@
+import pytest
+import requests
 import os
+
 from unittest.mock import patch, Mock
+from download_pipeline_processor.error import TransientPipelineError
+from transcription_pipeline.transcriber import TranscriptionError
 from transcription_pipeline.processors.transcription_post_processor import (
     TranscriptionPostProcessor,
 )
@@ -152,12 +157,6 @@ def test_handle_response_failure():
     mock_response.json.return_value = {"success": False, "message": "Error message"}
     result = {"id": "123"}
     processor.handle_response(mock_response, result)
-
-
-import pytest
-import requests
-from download_pipeline_processor.error import TransientPipelineError
-from transcription_pipeline.transcriber import TranscriptionError
 
 
 def test_is_transient_download_error(file_data):
