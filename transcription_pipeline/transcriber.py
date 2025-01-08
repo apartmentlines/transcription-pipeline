@@ -20,6 +20,13 @@ from .constants import (
 )
 
 
+class TranscriptionError(Exception):
+    """Custom exception for errors that occur during transcription."""
+
+    def __init__(self, exception):
+        super().__init__(f"Transcription error: {str(exception)}")
+
+
 class Transcriber:
     """Audio transcription class using WhisperX for speech-to-text conversion.
 
@@ -98,7 +105,11 @@ class Transcriber:
         :return: Numpy array containing the audio data
         """
         self.log.debug(f"Loading audio file: {input_file}")
-        return whisperx.load_audio(input_file)
+        try:
+            return whisperx.load_audio(input_file)
+        except Exception as e:
+            self.log.error(f"Failed to load audio file: {str(e)}")
+            raise TranscriptionError(e) from e
 
     def _perform_base_transcription(self, audio: np.ndarray) -> Dict[str, Any]:
         """Perform initial transcription of audio using WhisperX.
@@ -108,7 +119,11 @@ class Transcriber:
         """
         self.log.info("Performing base transcription")
         self.log.debug(f"Using batch size: {DEFAULT_BATCH_SIZE}")
-        result = self.model.transcribe(audio, batch_size=DEFAULT_BATCH_SIZE)
+        try:
+            result = self.model.transcribe(audio, batch_size=DEFAULT_BATCH_SIZE)
+        except Exception as e:
+            self.log.error(f"Failed to perform base transcription: {str(e)}")
+            raise TranscriptionError(e) from e
         self.log.debug(
             f"Base transcription complete with {len(result['segments'])} segments"
         )
@@ -130,14 +145,18 @@ class Transcriber:
             language_code=language, device=self.device
         )
         self.log.debug("Performing alignment")
-        aligned_result = whisperx.align(
-            segments,
-            model_a,
-            metadata,
-            audio,
-            self.device,
-            return_char_alignments=False,
-        )
+        try:
+            aligned_result = whisperx.align(
+                segments,
+                model_a,
+                metadata,
+                audio,
+                self.device,
+                return_char_alignments=False,
+            )
+        except Exception as e:
+            self.log.error(f"Failed to perform alignment: {str(e)}")
+            raise TranscriptionError(e) from e
         self.log.debug(
             f"Alignment complete with {len(aligned_result['segments'])} segments"
         )
@@ -154,7 +173,11 @@ class Transcriber:
         :return: Dictionary containing diarization results or None if diarization fails
         """
         self.log.info(f"Performing diarization with {num_speakers} speakers")
-        return self.diarization_model(audio, num_speakers=num_speakers)
+        try:
+            return self.diarization_model(audio, num_speakers=num_speakers)
+        except Exception as e:
+            self.log.error(f"Failed to perform diarization: {str(e)}")
+            raise TranscriptionError(e) from e
 
     def _assign_speakers(
         self, diarization_segments: Dict[str, Any], aligned_result: Dict[str, Any]
@@ -169,7 +192,11 @@ class Transcriber:
         self.log.debug(
             f"Processing {len(diarization_segments['segments'])} diarization segments"
         )
-        result = whisperx.assign_word_speakers(diarization_segments, aligned_result)
+        try:
+            result = whisperx.assign_word_speakers(diarization_segments, aligned_result)
+        except Exception as e:
+            self.log.error(f"Failed to assign speaker labels: {str(e)}")
+            raise TranscriptionError(e) from e
         self.log.debug(
             f"Speaker assignment complete with {len(result['segments'])} labeled segments"
         )
@@ -219,11 +246,19 @@ class Transcriber:
             output_dir / Path(input_file).with_suffix(f".{output_format}").name
         )
         self.log.debug(f"Writing output to: {output_path}")
-        writer(
-            result,
-            input_file,
-            {"max_line_width": None, "max_line_count": None, "highlight_words": False},
-        )
+        try:
+            writer(
+                result,
+                input_file,
+                {
+                    "max_line_width": None,
+                    "max_line_count": None,
+                    "highlight_words": False,
+                },
+            )
+        except Exception as e:
+            self.log.error(f"Failed to save output: {str(e)}")
+            raise TranscriptionError(e) from e
         self.log.info(f"Output saved to {output_dir}")
 
     def transcribe(
@@ -259,6 +294,7 @@ class Transcriber:
             return final_result
         except Exception as e:
             self.log.error(f"Transcription failed: {str(e)}")
+            self.log.debug(f"Full error details: {repr(e)}")
             raise
 
 

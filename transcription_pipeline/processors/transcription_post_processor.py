@@ -1,7 +1,10 @@
 import os
 import json
+import requests
 from download_pipeline_processor.processors.base_post_processor import BasePostProcessor
 from download_pipeline_processor.file_data import FileData
+from download_pipeline_processor.error import TransientPipelineError
+from transcription_pipeline.transcriber import TranscriptionError
 from transcription_pipeline.utils import post_request
 
 from ..constants import (
@@ -14,6 +17,30 @@ class TranscriptionPostProcessor(BasePostProcessor):
         super().__init__(debug=debug)
         self.api_key = os.environ.get("TRANSCRIPTION_API_KEY")
         self.domain = os.environ.get("TRANSCRIPTION_DOMAIN")
+
+    def is_transient_download_error(self, file_data: FileData) -> bool:
+        if file_data.error.stage == "download":
+            error = file_data.error.error
+            if isinstance(error, requests.exceptions.HTTPError):
+                status_code = error.response.status_code
+                return status_code == 429 or (500 <= status_code < 600)
+            return isinstance(
+                error,
+                (
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout,
+                    requests.exceptions.ChunkedEncodingError,
+                    requests.exceptions.ContentDecodingError,
+                    requests.exceptions.SSLError,
+                ),
+            )
+        return False
+
+    def is_transient_processing_error(self, file_data: FileData) -> bool:
+        if file_data.error.stage == "process":
+            error = file_data.error.error
+            return not isinstance(error, (TranscriptionError,))
+        return False
 
     def post_process(self, result: dict, file_data: FileData) -> None:
         url = self.build_update_url()
@@ -30,12 +57,17 @@ class TranscriptionPostProcessor(BasePostProcessor):
             self.log.warning(
                 f"Processing failed in stage '{file_data.error.stage}' with error: {file_data.error.error}"
             )
+            if self.is_transient_download_error(
+                file_data
+            ) or self.is_transient_processing_error(file_data):
+                self.log.debug(
+                    f"Skipping post-processing for {file_data.name} due to transient error"
+                )
+                raise TransientPipelineError(file_data.error.error)
             return {"id": file_data.id, "success": False}
         if result["success"]:
             if not result["transcription"]:
-                self.log.warning(
-                    f"No transcription found for {file_data.name}"
-                )
+                self.log.warning(f"No transcription found for {file_data.name}")
                 return {"id": file_data.id, "success": False}
         return result
 
@@ -44,9 +76,9 @@ class TranscriptionPostProcessor(BasePostProcessor):
             "api_key": self.api_key,
             "id": result["id"],
             "success": result["success"],
-            "transcription_state": TRANSCRIPTION_STATE_ACTIVE,
         }
         if result["success"]:
+            data["transcription_state"] = TRANSCRIPTION_STATE_ACTIVE
             data["transcription"] = result["transcription"]
             data["metadata"] = json.dumps(result["metadata"])
         return data

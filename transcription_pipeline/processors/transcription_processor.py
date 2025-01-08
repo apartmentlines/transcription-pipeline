@@ -59,4 +59,4 @@ class TranscriptionProcessor(BaseProcessor):
         except Exception as e:
             self.log.error(f"Transcription failed: {str(e)}")
             self.log.debug(f"Full error details: {repr(e)}")
-            return {"id": file_data.id, "success": False, "error": str(e)}
+            raise

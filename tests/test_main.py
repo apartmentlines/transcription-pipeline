@@ -143,7 +143,7 @@ class TestTranscriptionPipeline:
     def test_build_retrieve_request_url(self, pipeline):
         """Test that the retrieve request URL is correctly constructed."""
         expected_url = (
-            "https://test_domain/al/transcriptions/retrieve/operator-recordings"
+            "https://test_domain/al/transcriptions/retrieve/operator-recordings/ready"
         )
         assert pipeline.build_retrieve_request_url() == expected_url
 

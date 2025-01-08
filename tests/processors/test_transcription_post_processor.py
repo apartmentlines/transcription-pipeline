@@ -98,6 +98,7 @@ def test_format_request_payload_success():
         "success": True,
         "transcription": "Test transcription",
         "metadata": '{"key": "value"}',
+        "transcription_state": "active",
     }
 
 
@@ -151,3 +152,84 @@ def test_handle_response_failure():
     mock_response.json.return_value = {"success": False, "message": "Error message"}
     result = {"id": "123"}
     processor.handle_response(mock_response, result)
+
+
+import pytest
+import requests
+from download_pipeline_processor.error import TransientPipelineError
+from transcription_pipeline.transcriber import TranscriptionError
+
+
+def test_is_transient_download_error(file_data):
+    processor = TranscriptionPostProcessor()
+    http_error = requests.exceptions.HTTPError()
+    http_error.response = type("Response", (), {"status_code": None})
+
+    transient_status_codes = [429, 500, 502, 503, 504, 599]
+    for status_code in transient_status_codes:
+        http_error.response.status_code = status_code
+        file_data.add_error("download", http_error)
+        assert processor.is_transient_download_error(file_data) is True
+
+    non_transient_status_codes = [400, 401, 403, 404, 422]
+    for status_code in non_transient_status_codes:
+        http_error.response.status_code = status_code
+        file_data.add_error("download", http_error)
+        assert processor.is_transient_download_error(file_data) is False
+
+    transient_exceptions = [
+        requests.exceptions.ConnectionError(),
+        requests.exceptions.Timeout(),
+        requests.exceptions.ChunkedEncodingError(),
+        requests.exceptions.ContentDecodingError(),
+        requests.exceptions.SSLError(),
+    ]
+    for exception in transient_exceptions:
+        file_data.add_error("download", exception)
+        assert processor.is_transient_download_error(file_data) is True
+
+    non_transient_exceptions = [
+        requests.exceptions.URLRequired(),
+        requests.exceptions.TooManyRedirects(),
+        requests.exceptions.MissingSchema(),
+        requests.exceptions.InvalidSchema(),
+        requests.exceptions.InvalidURL(),
+    ]
+    for exception in non_transient_exceptions:
+        file_data.add_error("download", exception)
+        assert processor.is_transient_download_error(file_data) is False
+
+    file_data.add_error("download", ValueError())
+    assert processor.is_transient_download_error(file_data) is False
+
+    file_data.add_error("process", RuntimeError())
+    assert processor.is_transient_download_error(file_data) is False
+
+
+def test_is_transient_processing_error(file_data):
+    processor = TranscriptionPostProcessor()
+
+    file_data.add_error("process", TranscriptionError(ValueError("Bad format")))
+    assert processor.is_transient_processing_error(file_data) is False
+
+    file_data.add_error("process", RuntimeError("Unexpected error"))
+    assert processor.is_transient_processing_error(file_data) is True
+
+    file_data.add_error("download", Exception())
+    assert processor.is_transient_processing_error(file_data) is False
+
+
+def test_determine_result_state_transient_error(file_data):
+    processor = TranscriptionPostProcessor()
+
+    file_data.add_error("download", requests.exceptions.ConnectionError())
+    with pytest.raises(TransientPipelineError):
+        processor.determine_result_state(None, file_data)
+
+    file_data.add_error("process", ValueError())
+    with pytest.raises(TransientPipelineError):
+        processor.determine_result_state(None, file_data)
+
+    file_data.add_error("process", TranscriptionError(ValueError()))
+    result_state = processor.determine_result_state(None, file_data)
+    assert result_state == {"id": file_data.id, "success": False}

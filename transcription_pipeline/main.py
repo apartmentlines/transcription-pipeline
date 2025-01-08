@@ -19,7 +19,7 @@ from transcription_pipeline.constants import (
     DEFAULT_PROCESSING_LIMIT,
     DEFAULT_DOWNLOAD_QUEUE_SIZE,
     DEFAULT_DOWNLOAD_CACHE,
-    TRANSCRIPTION_STATE_READY
+    TRANSCRIPTION_STATE_READY,
 )
 
 
@@ -63,8 +63,6 @@ class TranscriptionPipeline:
     def build_retrieve_request_params(self) -> dict:
         return {
             "api_key": self.api_key,
-            # TODO: Remove this before deploying to production.
-            "min_id": 317075,
         }
 
     def retrieve_file_data(self) -> List[dict]:

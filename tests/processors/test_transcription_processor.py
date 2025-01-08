@@ -1,8 +1,10 @@
 import os
+import pytest
 from unittest.mock import Mock, patch
 from transcription_pipeline.processors.transcription_processor import (
     TranscriptionProcessor,
 )
+from transcription_pipeline.transcriber import TranscriptionError
 
 
 def test_transcription_processor_instantiation(mock_transcriber):
@@ -81,8 +83,29 @@ def test_process_failed_transcription(mock_transcriber, file_data):
     mock_transcriber_instance.transcribe.side_effect = Exception("Transcription failed")
 
     processor = TranscriptionProcessor()
-    result = processor.process(file_data)
+    with pytest.raises(Exception) as exc_info:
+        processor.process(file_data)
 
-    assert result["id"] == "123"
-    assert result["success"] is False
-    assert result["error"] == "Transcription failed"
+    assert str(exc_info.value) == "Transcription failed"
+
+def test_process_propagates_transcription_error(mock_transcriber, file_data):
+    mock_transcriber_instance = mock_transcriber.return_value
+    original_error = TranscriptionError(ValueError("Invalid audio format"))
+    mock_transcriber_instance.transcribe.side_effect = original_error
+
+    processor = TranscriptionProcessor()
+    with pytest.raises(TranscriptionError) as exc_info:
+        processor.process(file_data)
+
+    assert exc_info.value is original_error
+
+def test_process_propagates_value_error(mock_transcriber, file_data):
+    mock_transcriber_instance = mock_transcriber.return_value
+    original_error = ValueError("Invalid parameter")
+    mock_transcriber_instance.transcribe.side_effect = original_error
+
+    processor = TranscriptionProcessor()
+    with pytest.raises(ValueError) as exc_info:
+        processor.process(file_data)
+
+    assert exc_info.value is original_error
