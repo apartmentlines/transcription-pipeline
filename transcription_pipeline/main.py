@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 from typing import Optional, List
+from copy import deepcopy
 from download_pipeline_processor.processing_pipeline import ProcessingPipeline
 from download_pipeline_processor.logger import Logger
 from transcription_pipeline.processors.transcription_processor import (
@@ -78,9 +79,11 @@ class TranscriptionPipeline:
 
     def retrieve_file_data(self) -> List[dict]:
         url = self.build_retrieve_request_url()
-        self.log.debug(f"Retrieving file data from URL: {url}")
         try:
             params = self.build_retrieve_request_params()
+            log_params = deepcopy(params)
+            log_params["api_key"] = "REDACTED"
+            self.log.debug(f"Retrieving file data from URL: {url}, params: {log_params}")
             response = get_request(url, params)
             resp_json = response.json()
             if resp_json.get("success"):
