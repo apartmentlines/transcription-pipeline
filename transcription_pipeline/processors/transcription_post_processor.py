@@ -112,5 +112,5 @@ class TranscriptionPostProcessor(BasePostProcessor):
             )
         else:
             self.log.error(
-                f"Failed to update transcription: {resp_json.get('message')}"
+                f"Failed to update transcription for ID {result.get('id')}: {resp_json.get('message')}"
             )
