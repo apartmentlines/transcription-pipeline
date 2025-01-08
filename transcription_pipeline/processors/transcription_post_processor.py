@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import traceback
 from download_pipeline_processor.processors.base_post_processor import BasePostProcessor
 from download_pipeline_processor.file_data import FileData
 from download_pipeline_processor.error import TransientPipelineError
@@ -51,6 +52,7 @@ class TranscriptionPostProcessor(BasePostProcessor):
             self.handle_response(response, result)
         except Exception as e:
             self.log.error(f"Failed to post-process result for ID {file_data.id}: {e}")
+            traceback.print_exc()
 
     def determine_result_state(self, result: dict, file_data: FileData) -> dict:
         if file_data.has_error:
