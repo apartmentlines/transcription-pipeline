@@ -49,7 +49,7 @@ class TranscriptionPostProcessor(BasePostProcessor):
         data = self.format_request_payload(result_state)
         try:
             response = post_request(url, data)
-            self.handle_response(response, result)
+            self.handle_response(response, result_state)
         except Exception as e:
             self.log.error(f"Failed to post-process result for ID {file_data.id}: {e}")
             traceback.print_exc()

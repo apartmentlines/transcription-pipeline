@@ -35,8 +35,13 @@ def test_transcription_post_processor_post_process_success(
         "transcription": "Test transcription",
         "metadata": {"key": "value"},
     }
-    processor.post_process(result, file_data)
-    mock_post_request.assert_called_once()
+
+    with patch.object(processor, "handle_response") as mock_handle_response:
+        processor.post_process(result, file_data)
+        mock_post_request.assert_called_once()
+        # Verify handle_response got the transformed state
+        expected_state = processor.determine_result_state(result, file_data)
+        assert mock_handle_response.call_args[0][1] == expected_state
 
 
 @patch("transcription_pipeline.processors.transcription_post_processor.post_request")
@@ -52,6 +57,35 @@ def test_transcription_post_processor_post_process_failure(
     }
     processor.post_process(result, file_data)
     mock_post_request.assert_called_once()
+
+
+@patch("transcription_pipeline.processors.transcription_post_processor.post_request")
+def test_post_process_error_state_flow(mock_post_request, file_data):
+    """Test that post_process correctly handles and transforms error states"""
+    mock_response = Mock()
+    mock_response.json.return_value = {"success": True}
+    mock_post_request.return_value = mock_response
+
+    processor = TranscriptionPostProcessor()
+
+    # Add a non-transient error to the file_data
+    error_msg = "Test error"
+    file_data.add_error("process", TranscriptionError(error_msg))
+
+    original_result = {
+        "id": "123",
+        "success": True,
+        "transcription": "Test transcription",
+    }
+
+    with patch.object(processor, "handle_response") as mock_handle_response:
+        processor.post_process(original_result, file_data)
+
+        # Verify handle_response received the error state
+        called_result = mock_handle_response.call_args[0][1]
+        assert called_result["success"] is False
+        assert called_result["metadata"]["error"] == f"Transcription error: {error_msg}"
+        assert called_result["metadata"]["error_stage"] == "process"
 
 
 def test_determine_result_state_success(file_data):
