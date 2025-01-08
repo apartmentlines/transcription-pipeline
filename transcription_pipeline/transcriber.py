@@ -3,6 +3,7 @@
 import argparse
 import os
 import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Optional, Union, Dict, Any, TYPE_CHECKING
 from whisperx.utils import get_writer
@@ -181,6 +182,8 @@ class Transcriber:
                 audio,
                 self.device,
                 return_char_alignments=False,
+                include_word_timestamps=True,  # Enable word-level timing
+                include_word_confidence=True,  # Enable word-level confidence scores
             )
         except Exception as e:
             self.log.error(f"Failed to perform alignment: {str(e)}")
@@ -292,6 +295,34 @@ class Transcriber:
             raise TranscriptionError(e) from e
         self.log.info(f"Output saved to {output_dir}")
 
+    def _extract_transcription_metadata(
+        self, final_result: Dict[str, Any], base_result: Dict[str, Any]
+    ) -> None:
+        """Extract and add metadata to the transcription result.
+
+        :param final_result: The final transcription result to augment with metadata
+        :param base_result: The initial transcription result containing base metadata
+        """
+        segments = final_result.get("segments", [])
+
+        final_result["language_probability"] = base_result.get("language_probability")
+        final_result["total_words"] = sum(len(seg.get("words", [])) for seg in segments)
+
+        # Calculate total duration from last valid end time
+        final_duration = 0
+        for segment in reversed(segments):
+            if "end" in segment:
+                final_duration = segment["end"]
+                break
+        final_result["total_duration"] = final_duration
+
+        # Sum speaking duration only for segments with valid start/end times
+        final_result["speaking_duration"] = sum(
+            segment.get("end", 0) - segment.get("start", 0)
+            for segment in segments
+            if "start" in segment and "end" in segment
+        )
+
     def transcribe(
         self,
         input_file: Union[str, Path],
@@ -321,8 +352,10 @@ class Transcriber:
                 result["segments"], audio, result["language"]
             )
             final_result = self._handle_diarization(audio, aligned_result, num_speakers)
+            augmented_result = deepcopy(final_result)
+            self._extract_transcription_metadata(augmented_result, result)
             self._save_output(final_result, input_file, output_dir, output_format)
-            return final_result
+            return augmented_result
         except Exception as e:
             self.log.error(f"Transcription failed: {str(e)}")
             self.log.debug(f"Full error details: {repr(e)}")

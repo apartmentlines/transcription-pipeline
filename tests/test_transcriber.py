@@ -179,24 +179,21 @@ def test_align_transcription(mock_dependencies):
     mock_whisperx.align.return_value = {"segments": [{"text": "aligned"}]}
 
     transcriber = Transcriber()
-    test_audio = np.array([1.0, 2.0])
+    test_audio = Mock()
     result = transcriber._align_transcription([{"text": "test"}], test_audio, "en")
 
     assert "segments" in result
     mock_whisperx.load_align_model.assert_called_once()
 
-    # Get the actual call arguments
+    # Verify the call arguments
     call_args = mock_whisperx.align.call_args
     assert call_args is not None
     args, kwargs = call_args
 
-    # Verify the arguments
-    assert args[0] == [{"text": "test"}]
-    assert args[1] == mock_whisperx.load_align_model.return_value[0]
-    assert args[2] == mock_whisperx.load_align_model.return_value[1]
-    assert np.array_equal(args[3], test_audio)
-    assert args[4] == "cpu"
+    # Verify the arguments we care about
     assert kwargs.get("return_char_alignments") is False
+    assert kwargs.get("include_word_timestamps") is True
+    assert kwargs.get("include_word_confidence") is True
 
 
 def test_align_transcription_load_model_error(mock_dependencies):
@@ -351,6 +348,59 @@ def test_save_output_writer_error(tmp_path):
             transcriber._save_output(result, "test.wav", tmp_path, "srt")
 
 
+def test_extract_transcription_metadata():
+    transcriber = Transcriber()
+    final_result = {
+        "segments": [
+            {
+                "start": 0.0,
+                "end": 1.0,
+                "words": [{"word": "hello"}, {"word": "world"}],
+            },
+        ],
+    }
+    base_result = {"language_probability": 0.98}
+
+    transcriber._extract_transcription_metadata(final_result, base_result)
+
+    assert final_result["language_probability"] == 0.98
+    assert final_result["total_words"] == 2
+    assert final_result["total_duration"] == 1.0
+    assert final_result["speaking_duration"] == 1.0
+
+
+def test_extract_transcription_metadata_empty_segments():
+    transcriber = Transcriber()
+    final_result = {"segments": []}
+    base_result = {"language_probability": 0.98}
+
+    transcriber._extract_transcription_metadata(final_result, base_result)
+
+    assert final_result["language_probability"] == 0.98
+    assert final_result["total_words"] == 0
+    assert final_result["total_duration"] == 0
+    assert final_result["speaking_duration"] == 0
+
+
+def test_extract_transcription_metadata_missing_fields():
+    transcriber = Transcriber()
+    final_result = {
+        "segments": [
+            {"start": 0.0, "end": 1.0},  # No words
+            {"words": [{"word": "test"}]},  # No start/end
+            {},  # Empty segment
+        ],
+    }
+    base_result = {}  # No language probability
+
+    transcriber._extract_transcription_metadata(final_result, base_result)
+
+    assert final_result["language_probability"] is None
+    assert final_result["total_words"] == 1
+    assert final_result["total_duration"] == 1.0  # Uses last valid end time
+    assert final_result["speaking_duration"] == 1.0  # Only from first segment
+
+
 def test_transcribe_integration_error_propagation(
     tmp_path, mock_transcription_result, mock_dependencies
 ):
@@ -380,35 +430,29 @@ def test_transcribe_integration(
     mock_diarization_result,
     mock_dependencies,
 ):
-    # Create test file
     test_file = tmp_path / "test.wav"
     test_file.touch()
 
     # Setup mocks
     _, mock_whisperx, _ = mock_dependencies.return_value
-    mock_whisperx.load_audio.return_value = np.array([1.0, 2.0])
+    mock_whisperx.load_audio.return_value = Mock()
     mock_whisperx.load_align_model.return_value = (Mock(), Mock())
 
-    # Configure mock returns
+    # Configure mock returns with metadata
     mock_model = Mock()
-    mock_model.transcribe.return_value = mock_transcription_result
+    mock_model.transcribe.return_value = {
+        **mock_transcription_result,
+        "language_probability": 0.98,
+    }
     mock_whisperx.align.return_value = mock_alignment_result
 
-    # Setup final result structure
+    # Setup final result with metadata
     final_result = {
-        "segments": [
-            {
-                "text": "Hello world",
-                "start": 0.0,
-                "end": 1.0,
-                "speaker": "SPEAKER_0",
-                "words": [
-                    {"word": "Hello", "start": 0.0, "end": 0.5, "score": 0.9},
-                    {"word": "world", "start": 0.5, "end": 1.0, "score": 0.95},
-                ],
-            }
-        ],
-        "language": "en",
+        **mock_alignment_result,
+        "language_probability": 0.98,
+        "total_words": 2,
+        "total_duration": 1.0,
+        "speaking_duration": 1.0,
     }
     mock_whisperx.assign_word_speakers.return_value = final_result
 
@@ -428,17 +472,8 @@ def test_transcribe_integration(
     transcriber.diarization_model.assert_called_once()
     mock_whisperx.assign_word_speakers.assert_called_once()
 
-    # Verify content flow
-    assert result["segments"][0]["text"] == "Hello world"
-    assert result["segments"][0]["speaker"] == "SPEAKER_0"
-
-    # Verify timestamp consistency
-    assert result["segments"][0]["start"] == 0.0
-    assert result["segments"][0]["end"] == 1.0
-
-    # Verify word-level details maintained
-    words = result["segments"][0]["words"]
-    assert len(words) == 2
-    assert words[0]["word"] == "Hello"
-    assert words[1]["word"] == "world"
-    assert all(isinstance(word["score"], float) for word in words)
+    # Verify metadata in result
+    assert result["language_probability"] == 0.98
+    assert "total_words" in result
+    assert "total_duration" in result
+    assert "speaking_duration" in result

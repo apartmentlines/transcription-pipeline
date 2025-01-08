@@ -143,7 +143,14 @@ def test_format_request_payload_success():
         "id": "123",
         "success": True,
         "transcription": "Test transcription",
-        "metadata": {"key": "value"},
+        "metadata": {
+            "language": "en",
+            "segments": 2,
+            "language_probability": 0.98,
+            "total_words": 10,
+            "total_duration": 5.0,
+            "speaking_duration": 4.5,
+        },
     }
     data = processor.format_request_payload(result)
     assert data == {
@@ -151,7 +158,7 @@ def test_format_request_payload_success():
         "id": "123",
         "success": True,
         "transcription": "Test transcription",
-        "metadata": '{"key": "value"}',
+        "metadata": '{"language": "en", "segments": 2, "language_probability": 0.98, "total_words": 10, "total_duration": 5.0, "speaking_duration": 4.5}',
         "transcription_state": "active",
     }
 

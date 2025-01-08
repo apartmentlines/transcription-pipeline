@@ -54,6 +54,10 @@ class TranscriptionProcessor(BaseProcessor):
                 "metadata": {
                     "language": result.get("language"),
                     "segments": len(result.get("segments", [])),
+                    "language_probability": result.get("language_probability"),
+                    "total_words": result.get("total_words"),
+                    "total_duration": result.get("total_duration"),
+                    "speaking_duration": result.get("speaking_duration"),
                 },
             }
         except Exception as e:
