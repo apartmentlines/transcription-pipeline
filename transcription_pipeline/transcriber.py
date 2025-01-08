@@ -43,12 +43,18 @@ class Transcriber:
         whisper_model_name: str = DEFAULT_WHISPER_MODEL,
         diarization_model_name: Optional[str] = None,
         debug: bool = False,
+        whisperx_module: Any = whisperx,
+        device: Optional[str] = None,
+        compute_type: Optional[str] = None,
+        auth_token: Optional[str] = None,
     ):
         self.log = Logger(self.__class__.__name__, debug=debug)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.compute_type = "float16" if torch.cuda.is_available() else "int8"
+        self.whisperx = whisperx_module
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.compute_type = compute_type or ("float16" if torch.cuda.is_available() else "int8")
         self.whisper_model_name = whisper_model_name
         self.diarization_model_name = diarization_model_name
+        self.auth_token = auth_token or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
         self._initialize_whisper_model()
         self._initialize_diarization_model()
 
@@ -62,7 +68,7 @@ class Transcriber:
             f"Initializing with device={self.device}, compute_type={self.compute_type}"
         )
         self.log.info(f"Loading WhisperX model: {self.whisper_model_name}")
-        self.model = whisperx.load_model(
+        self.model = self.whisperx.load_model(
             self.whisper_model_name, self.device, compute_type=self.compute_type
         )
         self.log.debug("WhisperX model loaded successfully")
@@ -75,9 +81,9 @@ class Transcriber:
         """
         if self.diarization_model_name:
             self.log.info(f"Loading diarization model: {self.diarization_model_name}")
-            self.diarization_model = whisperx.DiarizationPipeline(
+            self.diarization_model = self.whisperx.DiarizationPipeline(
                 model_name=self.diarization_model_name,
-                use_auth_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN"),
+                use_auth_token=self.auth_token,
                 device=self.device,
             )
             self.log.debug("Diarization model loaded successfully")
@@ -106,7 +112,7 @@ class Transcriber:
         """
         self.log.debug(f"Loading audio file: {input_file}")
         try:
-            return whisperx.load_audio(input_file)
+            return self.whisperx.load_audio(input_file)
         except Exception as e:
             self.log.error(f"Failed to load audio file: {str(e)}")
             raise TranscriptionError(e) from e
@@ -141,12 +147,12 @@ class Transcriber:
         """
         self.log.info("Aligning transcription with audio")
         self.log.debug(f"Loading alignment model for language: {language}")
-        model_a, metadata = whisperx.load_align_model(
+        model_a, metadata = self.whisperx.load_align_model(
             language_code=language, device=self.device
         )
         self.log.debug("Performing alignment")
         try:
-            aligned_result = whisperx.align(
+            aligned_result = self.whisperx.align(
                 segments,
                 model_a,
                 metadata,
@@ -193,7 +199,7 @@ class Transcriber:
             f"Processing {len(diarization_segments['segments'])} diarization segments"
         )
         try:
-            result = whisperx.assign_word_speakers(diarization_segments, aligned_result)
+            result = self.whisperx.assign_word_speakers(diarization_segments, aligned_result)
         except Exception as e:
             self.log.error(f"Failed to assign speaker labels: {str(e)}")
             raise TranscriptionError(e) from e
