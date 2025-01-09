@@ -57,6 +57,7 @@ class TranscriptionProcessor(BaseProcessor):
                     "total_words": result.get("total_words"),
                     "total_duration": result.get("total_duration"),
                     "speaking_duration": result.get("speaking_duration"),
+                    "average_word_confidence": result.get("average_word_confidence"),
                 },
             }
         except Exception as e:

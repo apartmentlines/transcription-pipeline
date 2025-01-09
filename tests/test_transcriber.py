@@ -356,6 +356,10 @@ def test_extract_transcription_metadata():
                 "words": [{"word": "hello"}, {"word": "world"}],
             },
         ],
+        "word_segments": [
+            {"word": "hello", "score": 0.8},
+            {"word": "world", "score": 0.9},
+        ],
     }
     base_result = {}
 
@@ -364,11 +368,12 @@ def test_extract_transcription_metadata():
     assert final_result["total_words"] == 2
     assert final_result["total_duration"] == 1.0
     assert final_result["speaking_duration"] == 1.0
+    assert final_result["average_word_confidence"] == 0.8500  # (0.8 + 0.9) / 2
 
 
 def test_extract_transcription_metadata_empty_segments():
     transcriber = Transcriber()
-    final_result = {"segments": []}
+    final_result = {"segments": [], "word_segments": []}
     base_result = {}
 
     transcriber._extract_transcription_metadata(final_result, base_result)
@@ -376,6 +381,9 @@ def test_extract_transcription_metadata_empty_segments():
     assert final_result["total_words"] == 0
     assert final_result["total_duration"] == 0
     assert final_result["speaking_duration"] == 0
+    assert (
+        "average_word_confidence" not in final_result
+    )  # Should not be present with empty word_segments
 
 
 def test_extract_transcription_metadata_missing_fields():
@@ -386,6 +394,11 @@ def test_extract_transcription_metadata_missing_fields():
             {"words": [{"word": "test"}]},  # No start/end
             {},  # Empty segment
         ],
+        "word_segments": [
+            {"word": "test", "score": 0.75},  # Normal segment
+            {"word": "missing"},  # Missing score
+            {},  # Empty segment
+        ],
     }
     base_result = {}  # No language probability
 
@@ -394,6 +407,9 @@ def test_extract_transcription_metadata_missing_fields():
     assert final_result["total_words"] == 1
     assert final_result["total_duration"] == 1.0  # Uses last valid end time
     assert final_result["speaking_duration"] == 1.0  # Only from first segment
+    assert (
+        final_result["average_word_confidence"] == 0.7500
+    )  # Only uses segments with valid scores
 
 
 def test_transcribe_integration_error_propagation(
@@ -446,6 +462,10 @@ def test_transcribe_integration(
         "total_words": 2,
         "total_duration": 1.0,
         "speaking_duration": 1.0,
+        "word_segments": [
+            {"word": "Hello", "score": 0.9},
+            {"word": "world", "score": 0.95},
+        ],
     }
     mock_whisperx.assign_word_speakers.return_value = final_result
 
@@ -469,3 +489,5 @@ def test_transcribe_integration(
     assert "total_words" in result
     assert "total_duration" in result
     assert "speaking_duration" in result
+    assert "average_word_confidence" in result
+    assert result["average_word_confidence"] == 0.9250

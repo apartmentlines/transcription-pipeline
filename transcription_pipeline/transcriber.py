@@ -305,23 +305,26 @@ class Transcriber:
         :param base_result: The initial transcription result containing base metadata
         """
         segments = final_result.get("segments", [])
-
+        word_segments = final_result.get("word_segments", [])
         final_result["total_words"] = sum(len(seg.get("words", [])) for seg in segments)
-
-        # Calculate total duration from last valid end time
         final_duration = 0
         for segment in reversed(segments):
             if "end" in segment:
                 final_duration = segment["end"]
                 break
         final_result["total_duration"] = final_duration
-
-        # Sum speaking duration only for segments with valid start/end times
         final_result["speaking_duration"] = sum(
             segment.get("end", 0) - segment.get("start", 0)
             for segment in segments
             if "start" in segment and "end" in segment
         )
+        if word_segments:
+            valid_scores = [seg["score"] for seg in word_segments if "score" in seg]
+            if valid_scores:  # Only calculate if we have any valid scores
+                avg_confidence = sum(valid_scores) / len(valid_scores)
+                final_result["average_word_confidence"] = round(
+                    float(avg_confidence), 4
+                )
 
     def transcribe(
         self,
