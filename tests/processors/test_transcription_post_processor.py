@@ -146,7 +146,6 @@ def test_format_request_payload_success():
         "metadata": {
             "language": "en",
             "segments": 2,
-            "language_probability": 0.98,
             "total_words": 10,
             "total_duration": 5.0,
             "speaking_duration": 4.5,
@@ -158,7 +157,7 @@ def test_format_request_payload_success():
         "id": "123",
         "success": True,
         "transcription": "Test transcription",
-        "metadata": '{"language": "en", "segments": 2, "language_probability": 0.98, "total_words": 10, "total_duration": 5.0, "speaking_duration": 4.5}',
+        "metadata": '{"language": "en", "segments": 2, "total_words": 10, "total_duration": 5.0, "speaking_duration": 4.5}',
         "transcription_state": "active",
     }
 

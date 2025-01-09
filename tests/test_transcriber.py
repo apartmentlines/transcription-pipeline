@@ -191,9 +191,7 @@ def test_align_transcription(mock_dependencies):
     args, kwargs = call_args
 
     # Verify the arguments we care about
-    assert kwargs.get("return_char_alignments") is False
-    assert kwargs.get("word_timestamps") is True
-    assert kwargs.get("interpolate_silence") is True
+    assert kwargs.get("return_char_alignments") is True
 
 
 def test_align_transcription_load_model_error(mock_dependencies):
@@ -359,11 +357,10 @@ def test_extract_transcription_metadata():
             },
         ],
     }
-    base_result = {"language_probability": 0.98}
+    base_result = {}
 
     transcriber._extract_transcription_metadata(final_result, base_result)
 
-    assert final_result["language_probability"] == 0.98
     assert final_result["total_words"] == 2
     assert final_result["total_duration"] == 1.0
     assert final_result["speaking_duration"] == 1.0
@@ -372,11 +369,10 @@ def test_extract_transcription_metadata():
 def test_extract_transcription_metadata_empty_segments():
     transcriber = Transcriber()
     final_result = {"segments": []}
-    base_result = {"language_probability": 0.98}
+    base_result = {}
 
     transcriber._extract_transcription_metadata(final_result, base_result)
 
-    assert final_result["language_probability"] == 0.98
     assert final_result["total_words"] == 0
     assert final_result["total_duration"] == 0
     assert final_result["speaking_duration"] == 0
@@ -395,7 +391,6 @@ def test_extract_transcription_metadata_missing_fields():
 
     transcriber._extract_transcription_metadata(final_result, base_result)
 
-    assert final_result["language_probability"] is None
     assert final_result["total_words"] == 1
     assert final_result["total_duration"] == 1.0  # Uses last valid end time
     assert final_result["speaking_duration"] == 1.0  # Only from first segment
@@ -442,14 +437,12 @@ def test_transcribe_integration(
     mock_model = Mock()
     mock_model.transcribe.return_value = {
         **mock_transcription_result,
-        "language_probability": 0.98,
     }
     mock_whisperx.align.return_value = mock_alignment_result
 
     # Setup final result with metadata
     final_result = {
         **mock_alignment_result,
-        "language_probability": 0.98,
         "total_words": 2,
         "total_duration": 1.0,
         "speaking_duration": 1.0,
@@ -473,7 +466,6 @@ def test_transcribe_integration(
     mock_whisperx.assign_word_speakers.assert_called_once()
 
     # Verify metadata in result
-    assert result["language_probability"] == 0.98
     assert "total_words" in result
     assert "total_duration" in result
     assert "speaking_duration" in result

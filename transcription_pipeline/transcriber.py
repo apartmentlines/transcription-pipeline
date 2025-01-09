@@ -306,7 +306,6 @@ class Transcriber:
         """
         segments = final_result.get("segments", [])
 
-        final_result["language_probability"] = base_result.get("language_probability")
         final_result["total_words"] = sum(len(seg.get("words", [])) for seg in segments)
 
         # Calculate total duration from last valid end time
