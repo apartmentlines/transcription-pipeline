@@ -182,8 +182,8 @@ class Transcriber:
                 audio,
                 self.device,
                 return_char_alignments=False,
-                include_word_timestamps=True,  # Enable word-level timing
-                include_word_confidence=True,  # Enable word-level confidence scores
+                word_timestamps=True,  # Enable word-level timing
+                interpolate_silence=True,  # Better silence handling
             )
         except Exception as e:
             self.log.error(f"Failed to perform alignment: {str(e)}")

@@ -192,8 +192,8 @@ def test_align_transcription(mock_dependencies):
 
     # Verify the arguments we care about
     assert kwargs.get("return_char_alignments") is False
-    assert kwargs.get("include_word_timestamps") is True
-    assert kwargs.get("include_word_confidence") is True
+    assert kwargs.get("word_timestamps") is True
+    assert kwargs.get("interpolate_silence") is True
 
 
 def test_align_transcription_load_model_error(mock_dependencies):
