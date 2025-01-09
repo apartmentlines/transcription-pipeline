@@ -151,8 +151,6 @@ class Transcriber:
             result = self.model.transcribe(
                 audio,
                 batch_size=DEFAULT_BATCH_SIZE,
-                vad_filter=True,
-                vad_parameters={"threshold": 0.767}  # VAD onset threshold
             )
         except Exception as e:
             self.log.error(f"Failed to perform base transcription: {str(e)}")
