@@ -185,7 +185,6 @@ class Transcriber:
                 audio,
                 self.device,
                 return_char_alignments=True,
-                interpolate_silence=True,  # Better silence handling
             )
         except Exception as e:
             self.log.error(f"Failed to perform alignment: {str(e)}")
