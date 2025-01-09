@@ -148,7 +148,13 @@ class Transcriber:
         self.log.info("Performing base transcription")
         self.log.debug(f"Using batch size: {DEFAULT_BATCH_SIZE}")
         try:
-            result = self.model.transcribe(audio, batch_size=DEFAULT_BATCH_SIZE)
+            result = self.model.transcribe(
+                audio,
+                batch_size=DEFAULT_BATCH_SIZE,
+                word_timestamps=True,  # Enable precise word timing
+                detect_disfluencies=True,  # Detect ums, ahs, etc.
+                condition_on_previous_text=True,  # Improve context understanding
+            )
         except Exception as e:
             self.log.error(f"Failed to perform base transcription: {str(e)}")
             raise TranscriptionError(e) from e
@@ -181,9 +187,11 @@ class Transcriber:
                 metadata,
                 audio,
                 self.device,
-                return_char_alignments=False,
+                return_char_alignments=True,
                 word_timestamps=True,  # Enable word-level timing
                 interpolate_silence=True,  # Better silence handling
+                suppress_silence=True,  # Better silence detection
+                suppress_word_ts=False  # Keep detailed word timestamps
             )
         except Exception as e:
             self.log.error(f"Failed to perform alignment: {str(e)}")
