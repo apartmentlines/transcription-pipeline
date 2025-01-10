@@ -28,11 +28,15 @@ class TestTranscriptionPipeline:
     def pipeline(self, mock_transcriber):
         return TranscriptionPipeline(api_key="test_key", domain="test_domain")
 
-    def test_pipeline_initialization(self):
-        # Test that ProcessingPipeline is initialized with correct values
+    def test_transcription_pipeline_initialization(self):
+        """Test that TranscriptionPipeline is initialized with correct values"""
         pipeline = TranscriptionPipeline(
             api_key="test_key",
             domain="test_domain",
+            limit=10,
+            min_id=100,
+            max_id=200,
+            from_s3=True,
             processing_limit=5,
             download_queue_size=15,
             download_cache=Path("/tmp/test"),
@@ -40,6 +44,45 @@ class TestTranscriptionPipeline:
             debug=True,
         )
 
+        # Test TranscriptionPipeline arguments
+        assert pipeline.api_key == "test_key"
+        assert pipeline.domain == "test_domain"
+        assert pipeline.limit == 10
+        assert pipeline.min_id == 100
+        assert pipeline.max_id == 200
+        assert pipeline.from_s3 is True
+        assert pipeline.debug is True
+
+    def test_transcription_pipeline_initialization_defaults(self):
+        """Test that TranscriptionPipeline is initialized with correct default values"""
+        pipeline = TranscriptionPipeline(api_key="test_key", domain="test_domain")
+
+        # Test TranscriptionPipeline arguments
+        assert pipeline.api_key == "test_key"
+        assert pipeline.domain == "test_domain"
+        assert pipeline.limit is None
+        assert pipeline.min_id is None
+        assert pipeline.max_id is None
+        assert pipeline.from_s3 is False
+        assert pipeline.debug is False
+
+    def test_processing_pipeline_initialization(self):
+        """Test that ProcessingPipeline is initialized with correct values"""
+        pipeline = TranscriptionPipeline(
+            api_key="test_key",
+            domain="test_domain",
+            limit=10,
+            min_id=100,
+            max_id=200,
+            from_s3=True,
+            processing_limit=5,
+            download_queue_size=15,
+            download_cache=Path("/tmp/test"),
+            simulate_downloads=True,
+            debug=True,
+        )
+
+        # Test ProcessingPipeline instance
         assert pipeline.pipeline is not None
         assert isinstance(pipeline.pipeline, ProcessingPipeline)
         assert pipeline.pipeline.processing_limit == 5
@@ -51,10 +94,11 @@ class TestTranscriptionPipeline:
         assert pipeline.pipeline.processor_class == TranscriptionProcessor
         assert pipeline.pipeline.post_processor_class == TranscriptionPostProcessor
 
-    def test_pipeline_initialization_defaults(self):
-        # Test that ProcessingPipeline is initialized with correct default values
+    def test_processing_pipeline_initialization_defaults(self):
+        """Test that ProcessingPipeline is initialized with correct default values"""
         pipeline = TranscriptionPipeline(api_key="test_key", domain="test_domain")
 
+        # Test ProcessingPipeline instance
         assert pipeline.pipeline is not None
         assert isinstance(pipeline.pipeline, ProcessingPipeline)
         assert pipeline.pipeline.processing_limit == DEFAULT_PROCESSING_LIMIT
@@ -67,7 +111,15 @@ class TestTranscriptionPipeline:
         assert pipeline.pipeline.post_processor_class == TranscriptionPostProcessor
 
     @patch("transcription_pipeline.main.get_request")
-    def test_retrieve_file_data_success(self, mock_get_request, pipeline):
+    def test_retrieve_file_data_success(self, mock_get_request):
+        pipeline = TranscriptionPipeline(
+            api_key="test_key",
+            domain="test_domain",
+            limit=10,
+            min_id=100,
+            max_id=200,
+            from_s3=True,
+        )
         mock_response = Mock()
         mock_response.json.return_value = {
             "success": True,
@@ -77,15 +129,43 @@ class TestTranscriptionPipeline:
 
         files = pipeline.retrieve_file_data()
         assert files == [{"id": "1", "url": "url1"}]
+        mock_get_request.assert_called_once_with(
+            pipeline.build_retrieve_request_url(),
+            {
+                "api_key": "test_key",
+                "limit": 10,
+                "min_id": 100,
+                "max_id": 200,
+                "from_s3": "1",
+            },
+        )
 
     @patch("transcription_pipeline.main.get_request")
-    def test_retrieve_file_data_failure(self, mock_get_request, pipeline):
+    def test_retrieve_file_data_failure(self, mock_get_request):
+        pipeline = TranscriptionPipeline(
+            api_key="test_key",
+            domain="test_domain",
+            limit=10,
+            min_id=100,
+            max_id=200,
+            from_s3=True,
+        )
         mock_response = Mock()
         mock_response.json.return_value = {"success": False}
         mock_get_request.return_value = mock_response
 
         with pytest.raises(SystemExit):
             pipeline.retrieve_file_data()
+        mock_get_request.assert_called_once_with(
+            pipeline.build_retrieve_request_url(),
+            {
+                "api_key": "test_key",
+                "limit": 10,
+                "min_id": 100,
+                "max_id": 200,
+                "from_s3": "1",
+            },
+        )
 
     def test_prepare_file_data(self, pipeline):
         files = [
@@ -336,9 +416,37 @@ def test_main_configuration_error(mock_load_config):
 
 
 def test_parse_arguments():
-    test_args = ["--api-key", "test_api_key", "--domain", "test_domain", "--debug"]
+    test_args = [
+        "--api-key",
+        "test_api_key",
+        "--domain",
+        "test_domain",
+        "--debug",
+        "--limit",
+        "10",
+        "--min-id",
+        "100",
+        "--max-id",
+        "200",
+        "--from-s3",
+        "--processing-limit",
+        "5",
+        "--download-queue-size",
+        "15",
+        "--download-cache",
+        "/tmp/test",
+        "--simulate-downloads",
+    ]
     with patch("sys.argv", ["main.py"] + test_args):
         args = parse_arguments()
         assert args.api_key == "test_api_key"
         assert args.domain == "test_domain"
         assert args.debug is True
+        assert args.limit == 10
+        assert args.min_id == 100
+        assert args.max_id == 200
+        assert args.from_s3 is True
+        assert args.processing_limit == 5
+        assert args.download_queue_size == 15
+        assert args.download_cache == Path("/tmp/test")
+        assert args.simulate_downloads is True
