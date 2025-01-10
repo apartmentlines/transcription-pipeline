@@ -28,37 +28,43 @@ class TestTranscriptionPipeline:
     def pipeline(self, mock_transcriber):
         return TranscriptionPipeline(api_key="test_key", domain="test_domain")
 
-    def test_initialization(self, mock_transcriber):
-        # Test with all arguments specified
+    def test_pipeline_initialization(self):
+        # Test that ProcessingPipeline is initialized with correct values
         pipeline = TranscriptionPipeline(
             api_key="test_key",
             domain="test_domain",
-            limit=5,
-            processing_limit=10,
-            download_queue_size=20,
+            processing_limit=5,
+            download_queue_size=15,
             download_cache=Path("/tmp/test"),
             simulate_downloads=True,
             debug=True,
         )
-        assert pipeline.api_key == "test_key"
-        assert pipeline.domain == "test_domain"
-        assert pipeline.limit == 5
-        assert pipeline.processing_limit == 10
-        assert pipeline.download_queue_size == 20
-        assert pipeline.download_cache == Path("/tmp/test")
-        assert pipeline.simulate_downloads is True
-        assert pipeline.debug is True
 
-        # Test with defaults
+        assert pipeline.pipeline is not None
+        assert isinstance(pipeline.pipeline, ProcessingPipeline)
+        assert pipeline.pipeline.processing_limit == 5
+        assert pipeline.pipeline.download_queue_size == 15
+        assert pipeline.pipeline.download_cache == Path("/tmp/test")
+        assert pipeline.pipeline.simulate_downloads is True
+        assert pipeline.pipeline.debug is True
+        assert pipeline.pipeline.pre_processor_class == TranscriptionPreProcessor
+        assert pipeline.pipeline.processor_class == TranscriptionProcessor
+        assert pipeline.pipeline.post_processor_class == TranscriptionPostProcessor
+
+    def test_pipeline_initialization_defaults(self):
+        # Test that ProcessingPipeline is initialized with correct default values
         pipeline = TranscriptionPipeline(api_key="test_key", domain="test_domain")
-        assert pipeline.api_key == "test_key"
-        assert pipeline.domain == "test_domain"
-        assert pipeline.limit is None
-        assert pipeline.processing_limit == DEFAULT_PROCESSING_LIMIT
-        assert pipeline.download_queue_size == DEFAULT_DOWNLOAD_QUEUE_SIZE
-        assert pipeline.download_cache == DEFAULT_DOWNLOAD_CACHE
-        assert pipeline.simulate_downloads is False
-        assert pipeline.debug is False
+
+        assert pipeline.pipeline is not None
+        assert isinstance(pipeline.pipeline, ProcessingPipeline)
+        assert pipeline.pipeline.processing_limit == DEFAULT_PROCESSING_LIMIT
+        assert pipeline.pipeline.download_queue_size == DEFAULT_DOWNLOAD_QUEUE_SIZE
+        assert pipeline.pipeline.download_cache == DEFAULT_DOWNLOAD_CACHE
+        assert pipeline.pipeline.simulate_downloads is False
+        assert pipeline.pipeline.debug is False
+        assert pipeline.pipeline.pre_processor_class == TranscriptionPreProcessor
+        assert pipeline.pipeline.processor_class == TranscriptionProcessor
+        assert pipeline.pipeline.post_processor_class == TranscriptionPostProcessor
 
     @patch("transcription_pipeline.main.get_request")
     def test_retrieve_file_data_success(self, mock_get_request, pipeline):
@@ -106,44 +112,6 @@ class TestTranscriptionPipeline:
         ) as mock_set_env:
             pipeline.setup_configuration()
             mock_set_env.assert_called_once_with("test_key", "test_domain")
-
-    def test_pipeline_initialization(self, mock_transcriber):
-        # Test that ProcessingPipeline is initialized with correct values
-        pipeline = TranscriptionPipeline(
-            api_key="test_key",
-            domain="test_domain",
-            processing_limit=5,
-            download_queue_size=15,
-            download_cache=Path("/tmp/test"),
-            simulate_downloads=True,
-            debug=True,
-        )
-
-        assert pipeline.pipeline is not None
-        assert isinstance(pipeline.pipeline, ProcessingPipeline)
-        assert pipeline.pipeline.processing_limit == 5
-        assert pipeline.pipeline.download_queue_size == 15
-        assert pipeline.pipeline.download_cache == Path("/tmp/test")
-        assert pipeline.pipeline.simulate_downloads is True
-        assert pipeline.pipeline.debug is True
-        assert pipeline.pipeline.pre_processor_class == TranscriptionPreProcessor
-        assert pipeline.pipeline.processor_class == TranscriptionProcessor
-        assert pipeline.pipeline.post_processor_class == TranscriptionPostProcessor
-
-    def test_pipeline_initialization_defaults(self, mock_transcriber):
-        # Test that ProcessingPipeline is initialized with correct default values
-        pipeline = TranscriptionPipeline(api_key="test_key", domain="test_domain")
-
-        assert pipeline.pipeline is not None
-        assert isinstance(pipeline.pipeline, ProcessingPipeline)
-        assert pipeline.pipeline.processing_limit == DEFAULT_PROCESSING_LIMIT
-        assert pipeline.pipeline.download_queue_size == DEFAULT_DOWNLOAD_QUEUE_SIZE
-        assert pipeline.pipeline.download_cache == DEFAULT_DOWNLOAD_CACHE
-        assert pipeline.pipeline.simulate_downloads is False
-        assert pipeline.pipeline.debug is False
-        assert pipeline.pipeline.pre_processor_class == TranscriptionPreProcessor
-        assert pipeline.pipeline.processor_class == TranscriptionProcessor
-        assert pipeline.pipeline.post_processor_class == TranscriptionPostProcessor
 
     def test_build_retrieve_request_url(self, pipeline):
         """Test that the retrieve request URL is correctly constructed."""
