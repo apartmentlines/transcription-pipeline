@@ -30,6 +30,7 @@ class AudioFileValidator:
     :param min_duration: Minimum allowed duration in seconds
     :param max_duration: Maximum allowed duration in seconds
     :param debug: Enable debug logging
+    :param wave_module: Custom wave module to use
     :raises FileNotFoundError: If the audio file doesn't exist
     """
 
@@ -59,12 +60,12 @@ class AudioFileValidator:
         self.log.debug(f"Validated file path: {path}")
         return path
 
-    def _open_wave_file(self, file_path: Path) -> Any:
-        """Open and return wave file handle.
+    def _open_wave_file(self, file_path: Path) -> wave.Wave_read:
+        """Open WAV file and return file handle.
 
-        :param file_path: Path to the WAV file
-        :return: Wave file handle
-        :raises AudioFileLengthError: If file is invalid or unreadable
+        :param file_path: Path to WAV file
+        :return: Open wave.Wave_read file handle
+        :raises AudioFileLengthError: If file cannot be opened
         """
         try:
             return self.wave_module.open(str(file_path), "r")
@@ -75,20 +76,20 @@ class AudioFileValidator:
             self.log.error(f"Unexpected error reading WAV file: {e}")
             raise AudioFileLengthError(e)
 
-    def _calculate_duration(self, wav_file: Any) -> float:
-        """Calculate duration from wave file parameters.
+    def _calculate_duration(self, wav_file: wave.Wave_read) -> float:
+        """Calculate audio duration from WAV file parameters.
 
-        :param wav_file: Wave file handle
-        :return: Duration in seconds
+        :param wav_file: Open wave.Wave_read file handle
+        :return: Audio duration in seconds as float
         """
         return wav_file.getnframes() / wav_file.getframerate()
 
     def get_duration(self, file_path: Path) -> float:
-        """Calculate duration of WAV file in seconds.
+        """Get duration of WAV file in seconds.
 
-        :param file_path: Path to the WAV file
-        :return: Duration in seconds
-        :raises AudioFileLengthError: If file is invalid or unreadable
+        :param file_path: Path to WAV file
+        :return: Audio duration in seconds as float
+        :raises AudioFileLengthError: If file cannot be read
         """
         self.log.debug(f"Getting duration for {file_path}")
         with self._open_wave_file(file_path) as wav:
@@ -97,11 +98,11 @@ class AudioFileValidator:
             return duration
 
     def validate(self, file_path: Union[str, Path]) -> None:
-        """Validate the audio file meets all requirements.
+        """Validate WAV file meets duration requirements.
 
-        :param file_path: Path to the audio file to validate
+        :param file_path: Path to WAV file as string or Path object
         :raises FileNotFoundError: If file doesn't exist
-        :raises AudioFileLengthError: If file duration is outside allowed range
+        :raises AudioFileLengthError: If duration is outside allowed range
         """
         validated_path = self._validate_file_path(file_path)
         self.log.debug(f"Validating audio file: {validated_path}")
