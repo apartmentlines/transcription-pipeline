@@ -20,6 +20,7 @@ dependencies = [
     "requests",
     "tenacity",
     "download-pipeline-processor",
+    "srt",
     "torch",
     "numpy",
     "whisperx",
@@ -27,6 +28,7 @@ dependencies = [
 
 [project.scripts]
 audio-file-validator = "transcription_pipeline.audio_file_validator:main"
+srt-merger = "transcription_pipeline.srt_merger:main"
 transcription-processor = "transcription_pipeline.main:main"
 transcriber = "transcription_pipeline.transcriber:main"
 
