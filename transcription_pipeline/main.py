@@ -73,6 +73,8 @@ class TranscriptionPipeline:
 
     def build_retrieve_request_params(self) -> dict:
         params = {"api_key": self.api_key}
+        if self.limit is not None:
+            params["limit"] = self.limit
         if self.min_id is not None:
             params["min_id"] = self.min_id
         if self.max_id is not None:
@@ -106,9 +108,6 @@ class TranscriptionPipeline:
         for file in files:
             separator = "&" if "?" in file["url"] else "?"
             file["url"] += f"{separator}api_key={self.api_key}"
-        if self.limit:
-            self.log.info(f"Limiting processing to {self.limit} files")
-            files = files[: self.limit]
         return files
 
     def setup_configuration(self) -> None:

@@ -97,15 +97,6 @@ class TestTranscriptionPipeline:
         assert updated_files[0]["url"] == "http://example.com/file1?api_key=test_key"
         assert updated_files[1]["url"] == "http://example.com/file2?api_key=test_key"
 
-    def test_prepare_file_data_with_limit(self, pipeline):
-        pipeline.limit = 1
-        files = [
-            {"url": "http://example.com/file1"},
-            {"url": "http://example.com/file2"},
-        ]
-        updated_files = pipeline.prepare_file_data(files)
-        assert len(updated_files) == 1
-
     def test_setup_configuration(self, pipeline):
         with patch(
             "transcription_pipeline.main.set_environment_variables"
@@ -122,17 +113,19 @@ class TestTranscriptionPipeline:
 
     def test_build_retrieve_request_params(self, pipeline):
         """Test that the retrieve request parameters are correctly constructed."""
-        expected_params = {"api_key": "test_key"}
+        pipeline.limit = 10
+        expected_params = {"api_key": "test_key", "limit": 10}
         assert pipeline.build_retrieve_request_params() == expected_params
 
     def test_build_retrieve_request_params_with_filters(self):
-        """Test request params with min_id, max_id and from_s3 filters."""
+        """Test request params with min_id, max_id, from_s3 and limit filters."""
         pipeline = TranscriptionPipeline(
             api_key="test_key",
             domain="test_domain",
             min_id=100,
             max_id=200,
             from_s3=True,
+            limit=50,
         )
         params = pipeline.build_retrieve_request_params()
         assert params == {
@@ -140,15 +133,21 @@ class TestTranscriptionPipeline:
             "min_id": 100,
             "max_id": 200,
             "from_s3": "1",
+            "limit": 50,
         }
 
     def test_build_retrieve_request_params_partial_filters(self):
         """Test request params with only some filters set."""
         pipeline = TranscriptionPipeline(
-            api_key="test_key", domain="test_domain", min_id=100, from_s3=True
+            api_key="test_key", domain="test_domain", min_id=100, from_s3=True, limit=25
         )
         params = pipeline.build_retrieve_request_params()
-        assert params == {"api_key": "test_key", "min_id": 100, "from_s3": "1"}
+        assert params == {
+            "api_key": "test_key",
+            "min_id": 100,
+            "from_s3": "1",
+            "limit": 25,
+        }
 
     @patch("transcription_pipeline.main.get_request")
     def test_retrieve_file_data_with_filters(self, mock_get_request):
@@ -159,6 +158,7 @@ class TestTranscriptionPipeline:
             min_id=100,
             max_id=200,
             from_s3=True,
+            limit=30,
         )
 
         mock_response = Mock()
@@ -172,7 +172,13 @@ class TestTranscriptionPipeline:
 
         mock_get_request.assert_called_once_with(
             pipeline.build_retrieve_request_url(),
-            {"api_key": "test_key", "min_id": 100, "max_id": 200, "from_s3": "1"},
+            {
+                "api_key": "test_key",
+                "min_id": 100,
+                "max_id": 200,
+                "from_s3": "1",
+                "limit": 30,
+            },
         )
 
     @patch("download_pipeline_processor.processing_pipeline.ProcessingPipeline.run")
@@ -269,12 +275,15 @@ class TestTranscriptionPipeline:
             "--max-id",
             "200",
             "--from-s3",
+            "--limit",
+            "50",
         ]
         with patch("sys.argv", ["main.py"] + test_args):
             args = parse_arguments()
             assert args.min_id == 100
             assert args.max_id == 200
             assert args.from_s3 is True
+            assert args.limit == 50
 
     @patch("transcription_pipeline.main.TranscriptionPipeline")
     def test_main_with_filters(self, mock_pipeline, mock_transcriber):
@@ -295,6 +304,8 @@ class TestTranscriptionPipeline:
                 "--max-id",
                 "200",
                 "--from-s3",
+                "--limit",
+                "50",
             ],
         ):
             main()
@@ -306,7 +317,7 @@ class TestTranscriptionPipeline:
             max_id=200,
             from_s3=True,
             debug=False,
-            limit=None,
+            limit=50,
             processing_limit=DEFAULT_PROCESSING_LIMIT,
             download_queue_size=DEFAULT_DOWNLOAD_QUEUE_SIZE,
             download_cache=DEFAULT_DOWNLOAD_CACHE,
