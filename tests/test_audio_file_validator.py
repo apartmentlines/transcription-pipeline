@@ -29,7 +29,7 @@ def mock_wav_file():
 def test_init():
     validator = AudioFileValidator()
     assert validator.min_duration == 5
-    assert validator.max_duration == 300
+    assert validator.max_duration == 600
 
 
 def test_validate_file_path_success(tmp_path):

@@ -13,7 +13,7 @@ DOWNLOAD_TIMEOUT = 30  # in seconds
 
 # Audio validation constants
 MIN_AUDIO_DURATION = 5  # seconds
-MAX_AUDIO_DURATION = 300  # seconds
+MAX_AUDIO_DURATION = 600  # seconds
 
 # Transcription model constants
 DEFAULT_WHISPER_MODEL = "large-v2"
