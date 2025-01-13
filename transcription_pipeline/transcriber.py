@@ -14,6 +14,7 @@ from .constants import (
     DEFAULT_OUTPUT_DIR,
     DEFAULT_OUTPUT_FORMAT,
     DEFAULT_BATCH_SIZE,
+    VALID_LANGUAGES,
 )
 
 if TYPE_CHECKING:
@@ -296,6 +297,18 @@ class Transcriber:
             raise TranscriptionError(e) from e
         self.log.info(f"Output saved to {output_dir}")
 
+    def _validate_language(self, detected_language: str) -> None:
+        """Validate that the detected language is supported for alignment.
+
+        :param detected_language: Language code detected by WhisperX
+        :raises TranscriptionError: If the language is not supported
+        """
+        if detected_language not in VALID_LANGUAGES:
+            self.log.error(f"Unsupported language detected: {detected_language}")
+            raise TranscriptionError(
+                f"Language '{detected_language}' is not supported. Supported languages are: {', '.join(VALID_LANGUAGES)}"
+            )
+
     def _extract_transcription_metadata(
         self, final_result: Dict[str, Any], base_result: Dict[str, Any]
     ) -> None:
@@ -351,6 +364,7 @@ class Transcriber:
             validated_path = self._validate_input_file(input_file)
             audio = self._load_audio(validated_path)
             result = self._perform_base_transcription(audio)
+            self._validate_language(result["language"])
             aligned_result = self._align_transcription(
                 result["segments"], audio, result["language"]
             )

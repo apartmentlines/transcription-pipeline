@@ -386,6 +386,41 @@ def test_extract_transcription_metadata_empty_segments():
     )  # Should not be present with empty word_segments
 
 
+def test_validate_language_supported():
+    transcriber = Transcriber()
+    # Should not raise any exception
+    transcriber._validate_language("en")
+    transcriber._validate_language("es")
+
+
+def test_validate_language_unsupported():
+    transcriber = Transcriber()
+    with pytest.raises(TranscriptionError) as exc:
+        transcriber._validate_language("fr")
+    assert "Language 'fr' is not supported" in str(exc.value)
+
+
+def test_transcribe_unsupported_language(tmp_path, mock_dependencies):
+    test_file = tmp_path / "test.wav"
+    test_file.touch()
+
+    _, mock_whisperx, _ = mock_dependencies.return_value
+    mock_whisperx.load_audio.return_value = np.array([1.0, 2.0])
+
+    mock_model = Mock()
+    mock_model.transcribe.return_value = {
+        "segments": [],
+        "language": "fr",  # Unsupported language
+    }
+
+    transcriber = Transcriber()
+    transcriber.model = mock_model
+
+    with pytest.raises(TranscriptionError) as exc:
+        transcriber.transcribe(test_file)
+    assert "Language 'fr' is not supported" in str(exc.value)
+
+
 def test_extract_transcription_metadata_missing_fields():
     transcriber = Transcriber()
     final_result = {
