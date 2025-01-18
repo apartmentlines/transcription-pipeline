@@ -153,10 +153,12 @@ class Transcriber:
         self.log.debug(f"Using batch size: {DEFAULT_BATCH_SIZE}")
         self.log.debug(f"Initial prompt: {initial_prompt}")
         try:
+            # WhisperX doesn't allow passing the prompt to transcribe(), so hack
+            # the options directly.
+            self.model.options.initial_prompt = initial_prompt
             result = self.model.transcribe(
                 audio,
                 batch_size=DEFAULT_BATCH_SIZE,
-                initial_prompt=initial_prompt,
             )
         except Exception as e:
             self.log.error(f"Failed to perform base transcription: {str(e)}")

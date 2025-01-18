@@ -26,7 +26,7 @@ INITIAL_PROMPT = """At %s, operators engage in conversations with residents abou
 
 Frequent emergencies include no A/C or heat, electrical problems, lockouts, gas leaks, and overflowing toilets.
 
-Residents might say "There's a water leak in my apartment", "I have no hot water", "I hear a smoke alarm", or "I'm locked out of m
+Residents might say "There's a water leak in my apartment", "I have no hot water", "I hear a smoke alarm", or "I'm locked out of my
 unit".
 
 Operators often respond with "I'll dispatch maintenance", "I'll notify courtesy patrol", or "Please provide your apartment number
