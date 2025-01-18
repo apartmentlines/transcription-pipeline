@@ -74,16 +74,16 @@ class TranscriptionPipeline:
     def build_retrieve_request_params(self) -> dict:
         params = {"api_key": self.api_key}
         if self.limit is not None:
-            params["limit"] = self.limit
+            params["limit"] = str(self.limit)
         if self.min_id is not None:
-            params["min_id"] = self.min_id
+            params["min_id"] = str(self.min_id)
         if self.max_id is not None:
-            params["max_id"] = self.max_id
+            params["max_id"] = str(self.max_id)
         if self.from_s3:
             params["from_s3"] = "1"
         return params
 
-    def retrieve_file_data(self) -> List[dict]:
+    def retrieve_file_data(self) -> List[dict] | None:
         url = self.build_retrieve_request_url()
         try:
             params = self.build_retrieve_request_params()

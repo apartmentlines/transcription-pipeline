@@ -15,6 +15,7 @@ from .constants import (
     DEFAULT_OUTPUT_FORMAT,
     DEFAULT_BATCH_SIZE,
     VALID_LANGUAGES,
+    INITIAL_PROMPT,
 )
 
 if TYPE_CHECKING:
@@ -133,25 +134,29 @@ class Transcriber:
         """
         self.log.debug(f"Loading audio file: {input_file}")
         try:
-            _, np, _ = _import_dependencies()
+            _, _, _ = _import_dependencies()
             return self.whisperx.load_audio(input_file)
         except Exception as e:
             self.log.error(f"Failed to load audio file: {str(e)}")
             raise TranscriptionError(e) from e
 
-    def _perform_base_transcription(self, audio: "np.ndarray") -> Dict[str, Any]:
+    def _perform_base_transcription(
+        self, audio: "np.ndarray", initial_prompt: str
+    ) -> Dict[str, Any]:
         """Perform initial transcription of audio using WhisperX.
 
         :param audio: Numpy array containing audio data
         :return: Dictionary containing transcription results and metadata
         """
-        np, _, _ = _import_dependencies()
+        _, _, _ = _import_dependencies()
         self.log.info("Performing base transcription")
         self.log.debug(f"Using batch size: {DEFAULT_BATCH_SIZE}")
+        self.log.debug(f"Initial prompt: {initial_prompt}")
         try:
             result = self.model.transcribe(
                 audio,
                 batch_size=DEFAULT_BATCH_SIZE,
+                initial_prompt=initial_prompt,
             )
         except Exception as e:
             self.log.error(f"Failed to perform base transcription: {str(e)}")
@@ -171,7 +176,7 @@ class Transcriber:
         :param language: Detected language code
         :return: Dictionary containing aligned transcription results
         """
-        np, _, _ = _import_dependencies()
+        _, _, _ = _import_dependencies()
         self.log.info("Aligning transcription with audio")
         self.log.debug(f"Loading alignment model for language: {language}")
         model_a, metadata = self.whisperx.load_align_model(
@@ -205,10 +210,12 @@ class Transcriber:
         :param num_speakers: Expected number of speakers in the audio
         :return: Dictionary containing diarization results or None if diarization fails
         """
-        np, _, _ = _import_dependencies()
+        _, _, _ = _import_dependencies()
         self.log.info(f"Performing diarization with {num_speakers} speakers")
         try:
-            return self.diarization_model(audio, num_speakers=num_speakers)
+            return self.diarization_model and self.diarization_model(
+                audio, num_speakers=num_speakers
+            )
         except Exception as e:
             self.log.error(f"Failed to perform diarization: {str(e)}")
             raise TranscriptionError(e) from e
@@ -285,7 +292,7 @@ class Transcriber:
         try:
             writer(
                 result,
-                input_file,
+                input_file,  # pyright: ignore[reportArgumentType]
                 {
                     "max_line_width": None,
                     "max_line_count": None,
@@ -309,9 +316,7 @@ class Transcriber:
                 f"Language '{detected_language}' is not supported. Supported languages are: {', '.join(VALID_LANGUAGES)}"
             )
 
-    def _extract_transcription_metadata(
-        self, final_result: Dict[str, Any], base_result: Dict[str, Any]
-    ) -> None:
+    def _extract_transcription_metadata(self, final_result: Dict[str, Any]) -> None:
         """Extract and add metadata to the transcription result.
 
         :param final_result: The final transcription result to augment with metadata
@@ -342,8 +347,9 @@ class Transcriber:
     def transcribe(
         self,
         input_file: Union[str, Path],
+        initial_prompt: str,
         num_speakers: int = DEFAULT_NUM_SPEAKERS,
-        output_dir: Path = DEFAULT_OUTPUT_DIR,
+        output_dir: Path | None = DEFAULT_OUTPUT_DIR,
         output_format: str = DEFAULT_OUTPUT_FORMAT,
     ) -> Dict[str, Any]:
         """Transcribe an audio file with optional speaker diarization.
@@ -363,14 +369,14 @@ class Transcriber:
         try:
             validated_path = self._validate_input_file(input_file)
             audio = self._load_audio(validated_path)
-            result = self._perform_base_transcription(audio)
+            result = self._perform_base_transcription(audio, initial_prompt)
             self._validate_language(result["language"])
             aligned_result = self._align_transcription(
                 result["segments"], audio, result["language"]
             )
             final_result = self._handle_diarization(audio, aligned_result, num_speakers)
             augmented_result = deepcopy(final_result)
-            self._extract_transcription_metadata(augmented_result, result)
+            self._extract_transcription_metadata(augmented_result)
             self._save_output(final_result, input_file, output_dir, output_format)
             return augmented_result
         except Exception as e:
@@ -429,8 +435,10 @@ def main() -> None:
         debug=args.debug,
     )
     try:
+        initial_prompt = INITIAL_PROMPT % "Abbie Lake Apartments"
         transcriber.transcribe(
             args.input_file,
+            initial_prompt,
             num_speakers=args.num_speakers,
             output_dir=args.output_dir,
             output_format=args.output_format,

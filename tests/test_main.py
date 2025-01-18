@@ -24,8 +24,9 @@ from transcription_pipeline.constants import (
 
 
 class TestTranscriptionPipeline:
+    @pytest.mark.usefixtures("mock_transcriber")
     @pytest.fixture
-    def pipeline(self, mock_transcriber):
+    def pipeline(self):
         return TranscriptionPipeline(api_key="test_key", domain="test_domain")
 
     def test_transcription_pipeline_initialization(self):
@@ -133,9 +134,9 @@ class TestTranscriptionPipeline:
             pipeline.build_retrieve_request_url(),
             {
                 "api_key": "test_key",
-                "limit": 10,
-                "min_id": 100,
-                "max_id": 200,
+                "limit": "10",
+                "min_id": "100",
+                "max_id": "200",
                 "from_s3": "1",
             },
         )
@@ -160,9 +161,9 @@ class TestTranscriptionPipeline:
             pipeline.build_retrieve_request_url(),
             {
                 "api_key": "test_key",
-                "limit": 10,
-                "min_id": 100,
-                "max_id": 200,
+                "limit": "10",
+                "min_id": "100",
+                "max_id": "200",
                 "from_s3": "1",
             },
         )
@@ -194,7 +195,7 @@ class TestTranscriptionPipeline:
     def test_build_retrieve_request_params(self, pipeline):
         """Test that the retrieve request parameters are correctly constructed."""
         pipeline.limit = 10
-        expected_params = {"api_key": "test_key", "limit": 10}
+        expected_params = {"api_key": "test_key", "limit": "10"}
         assert pipeline.build_retrieve_request_params() == expected_params
 
     def test_build_retrieve_request_params_with_filters(self):
@@ -210,10 +211,10 @@ class TestTranscriptionPipeline:
         params = pipeline.build_retrieve_request_params()
         assert params == {
             "api_key": "test_key",
-            "min_id": 100,
-            "max_id": 200,
+            "min_id": "100",
+            "max_id": "200",
             "from_s3": "1",
-            "limit": 50,
+            "limit": "50",
         }
 
     def test_build_retrieve_request_params_partial_filters(self):
@@ -224,9 +225,9 @@ class TestTranscriptionPipeline:
         params = pipeline.build_retrieve_request_params()
         assert params == {
             "api_key": "test_key",
-            "min_id": 100,
+            "min_id": "100",
             "from_s3": "1",
-            "limit": 25,
+            "limit": "25",
         }
 
     @patch("transcription_pipeline.main.get_request")
@@ -254,10 +255,10 @@ class TestTranscriptionPipeline:
             pipeline.build_retrieve_request_url(),
             {
                 "api_key": "test_key",
-                "min_id": 100,
-                "max_id": 200,
+                "min_id": "100",
+                "max_id": "200",
                 "from_s3": "1",
-                "limit": 30,
+                "limit": "30",
             },
         )
 
@@ -315,10 +316,12 @@ class TestTranscriptionPipeline:
 
         with pytest.raises(Exception, match="Retrieval error"):
             pipeline.run()
+        mock_setup.assert_called_once()
         mock_run.assert_not_called()
 
+    @pytest.mark.usefixtures("mock_transcriber")
     @patch("transcription_pipeline.main.TranscriptionPipeline")
-    def test_main_success(self, mock_pipeline, mock_transcriber):
+    def test_main_success(self, mock_pipeline):
         mock_pipeline_instance = Mock()
         mock_pipeline.return_value = mock_pipeline_instance
 
@@ -365,8 +368,9 @@ class TestTranscriptionPipeline:
             assert args.from_s3 is True
             assert args.limit == 50
 
+    @pytest.mark.usefixtures("mock_transcriber")
     @patch("transcription_pipeline.main.TranscriptionPipeline")
-    def test_main_with_filters(self, mock_pipeline, mock_transcriber):
+    def test_main_with_filters(self, mock_pipeline):
         """Test that main() properly passes filter arguments to TranscriptionPipeline."""
         mock_pipeline_instance = Mock()
         mock_pipeline.return_value = mock_pipeline_instance

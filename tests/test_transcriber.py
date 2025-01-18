@@ -141,7 +141,7 @@ def test_load_audio_error(mock_dependencies):
         transcriber._load_audio("test.wav")
 
 
-def test_perform_base_transcription():
+def test_perform_base_transcription(initial_prompt):
     mock_model = Mock()
     mock_model.transcribe.return_value = {"segments": [{"text": "test"}]}
 
@@ -149,7 +149,7 @@ def test_perform_base_transcription():
     transcriber.model = mock_model
 
     test_audio = np.array([1.0, 2.0])
-    result = transcriber._perform_base_transcription(test_audio)
+    result = transcriber._perform_base_transcription(test_audio, initial_prompt)
     assert "segments" in result
 
     # Get the actual call arguments
@@ -162,7 +162,7 @@ def test_perform_base_transcription():
     assert kwargs.get("batch_size") == DEFAULT_BATCH_SIZE
 
 
-def test_perform_base_transcription_error():
+def test_perform_base_transcription_error(initial_prompt):
     mock_model = Mock()
     mock_model.transcribe.side_effect = Exception("Transcription failed")
 
@@ -170,7 +170,7 @@ def test_perform_base_transcription_error():
     transcriber.model = mock_model
 
     with pytest.raises(TranscriptionError):
-        transcriber._perform_base_transcription(np.array([1.0, 2.0]))
+        transcriber._perform_base_transcription(np.array([1.0, 2.0]), initial_prompt)
 
 
 def test_align_transcription(mock_dependencies):
@@ -188,7 +188,7 @@ def test_align_transcription(mock_dependencies):
     # Verify the call arguments
     call_args = mock_whisperx.align.call_args
     assert call_args is not None
-    args, kwargs = call_args
+    _, kwargs = call_args
 
     # Verify the arguments we care about
     assert kwargs.get("return_char_alignments") is True
@@ -221,7 +221,7 @@ def test_perform_diarization():
     transcriber.diarization_model = mock_diarization_model
 
     result = transcriber._perform_diarization(np.array([1.0, 2.0]), 2)
-    assert "segments" in result
+    assert result and "segments" in result
     mock_diarization_model.assert_called_once()
 
 
@@ -361,9 +361,7 @@ def test_extract_transcription_metadata():
             {"word": "world", "score": 0.9},
         ],
     }
-    base_result = {}
-
-    transcriber._extract_transcription_metadata(final_result, base_result)
+    transcriber._extract_transcription_metadata(final_result)
 
     assert final_result["total_words"] == 2
     assert final_result["total_duration"] == 1.0
@@ -374,9 +372,7 @@ def test_extract_transcription_metadata():
 def test_extract_transcription_metadata_empty_segments():
     transcriber = Transcriber()
     final_result = {"segments": [], "word_segments": []}
-    base_result = {}
-
-    transcriber._extract_transcription_metadata(final_result, base_result)
+    transcriber._extract_transcription_metadata(final_result)
 
     assert final_result["total_words"] == 0
     assert final_result["total_duration"] == 0
@@ -400,7 +396,7 @@ def test_validate_language_unsupported():
     assert "Language 'fr' is not supported" in str(exc.value)
 
 
-def test_transcribe_unsupported_language(tmp_path, mock_dependencies):
+def test_transcribe_unsupported_language(tmp_path, mock_dependencies, initial_prompt):
     test_file = tmp_path / "test.wav"
     test_file.touch()
 
@@ -417,7 +413,7 @@ def test_transcribe_unsupported_language(tmp_path, mock_dependencies):
     transcriber.model = mock_model
 
     with pytest.raises(TranscriptionError) as exc:
-        transcriber.transcribe(test_file)
+        transcriber.transcribe(test_file, initial_prompt)
     assert "Language 'fr' is not supported" in str(exc.value)
 
 
@@ -435,9 +431,7 @@ def test_extract_transcription_metadata_missing_fields():
             {},  # Empty segment
         ],
     }
-    base_result = {}  # No language probability
-
-    transcriber._extract_transcription_metadata(final_result, base_result)
+    transcriber._extract_transcription_metadata(final_result)
 
     assert final_result["total_words"] == 1
     assert final_result["total_duration"] == 1.0  # Uses last valid end time
@@ -448,7 +442,7 @@ def test_extract_transcription_metadata_missing_fields():
 
 
 def test_transcribe_integration_error_propagation(
-    tmp_path, mock_transcription_result, mock_dependencies
+    tmp_path, mock_transcription_result, mock_dependencies, initial_prompt
 ):
     test_file = tmp_path / "test.wav"
     test_file.touch()
@@ -465,7 +459,7 @@ def test_transcribe_integration_error_propagation(
     transcriber.model = mock_model
 
     with pytest.raises(TranscriptionError) as exc:
-        transcriber.transcribe(test_file)
+        transcriber.transcribe(test_file, initial_prompt)
     assert "Alignment failed" in str(exc.value)
 
 
@@ -475,6 +469,7 @@ def test_transcribe_integration(
     mock_alignment_result,
     mock_diarization_result,
     mock_dependencies,
+    initial_prompt,
 ):
     test_file = tmp_path / "test.wav"
     test_file.touch()
@@ -510,7 +505,7 @@ def test_transcribe_integration(
     transcriber.diarization_model = Mock(return_value=mock_diarization_result)
 
     # Perform transcription
-    result = transcriber.transcribe(test_file)
+    result = transcriber.transcribe(test_file, initial_prompt)
 
     # Verify pipeline flow
     mock_whisperx.load_audio.assert_called_once_with(test_file)

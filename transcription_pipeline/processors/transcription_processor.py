@@ -4,6 +4,9 @@ from whisperx.utils import get_writer
 from ..transcriber import Transcriber
 import tempfile
 import os
+from transcription_pipeline.constants import (
+    INITIAL_PROMPT,
+)
 
 
 class TranscriptionProcessor(BaseProcessor):
@@ -30,7 +33,11 @@ class TranscriptionProcessor(BaseProcessor):
                 "highlight_words": False,
             }
             writer = get_writer("srt", os.path.dirname(tmp.name))
-            writer(result, os.path.basename(tmp.name), options)
+            writer(
+                result,
+                os.path.basename(tmp.name),  # pyright: ignore[reportArgumentType]
+                options,
+            )
             tmp.seek(0)
             return tmp.read()
 
@@ -42,7 +49,8 @@ class TranscriptionProcessor(BaseProcessor):
         """
         self.log.info(f"Transcribing {file_data.name}, {file_data.record_name}")
         try:
-            result = self.transcriber.transcribe(file_data.local_path)
+            initial_prompt = INITIAL_PROMPT % file_data.record_name
+            result = self.transcriber.transcribe(file_data.local_path, initial_prompt)
             self.log.debug(f"Transcription successful for {file_data.id}")
             self.log.debug(f"Language detected: {result.get('language')}")
             self.log.debug(f"Number of segments: {len(result.get('segments', []))}")

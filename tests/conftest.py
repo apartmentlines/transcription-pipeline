@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, Mock
 from download_pipeline_processor.file_data import FileData
+from transcription_pipeline.constants import INITIAL_PROMPT
 
 
 @pytest.fixture(autouse=True)
@@ -56,3 +57,8 @@ def sample_transcription_result():
 @pytest.fixture
 def sample_srt():
     return "1\n00:00:00,000 --> 00:00:02,000\nTest subtitle\n\n"
+
+
+@pytest.fixture
+def initial_prompt():
+    return INITIAL_PROMPT % "Test Apartments"

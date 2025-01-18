@@ -7,14 +7,16 @@ from transcription_pipeline.processors.transcription_processor import (
 from transcription_pipeline.transcriber import TranscriptionError
 
 
-def test_transcription_processor_instantiation(mock_transcriber):
+@pytest.mark.usefixtures("mock_transcriber")
+def test_transcription_processor_instantiation():
     processor = TranscriptionProcessor()
     assert hasattr(processor, "process")
     assert hasattr(processor, "_format_transcription")
     assert hasattr(processor, "transcriber")
 
 
-def test_format_transcription(mock_transcriber, mock_get_writer, sample_srt):
+@pytest.mark.usefixtures("mock_transcriber")
+def test_format_transcription(mock_get_writer, sample_srt):
     mock_writer = Mock()
     mock_get_writer.return_value = mock_writer
 
@@ -41,6 +43,7 @@ def test_transcription_processor_process(
     file_data,
     sample_transcription_result,
     sample_srt,
+    initial_prompt,
 ):
     # Setup mocks
     mock_transcriber_instance = mock_transcriber.return_value
@@ -60,7 +63,7 @@ def test_transcription_processor_process(
 
         # Verify transcription was called
         mock_transcriber_instance.transcribe.assert_called_once_with(
-            file_data.local_path
+            file_data.local_path, initial_prompt
         )
 
         # Verify writer was configured correctly

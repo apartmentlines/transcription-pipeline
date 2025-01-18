@@ -22,6 +22,20 @@ DEFAULT_OUTPUT_DIR = None
 DEFAULT_OUTPUT_FORMAT = "srt"
 DEFAULT_BATCH_SIZE = 16
 VALID_LANGUAGES = ["en", "es"]
+INITIAL_PROMPT = """At %s, operators engage in conversations with residents about maintenance emergencies and security issues.
+
+Frequent emergencies include no A/C or heat, electrical problems, lockouts, gas leaks, and overflowing toilets.
+
+Residents might say "There's a water leak in my apartment", "I have no hot water", "I hear a smoke alarm", or "I'm locked out of m
+unit".
+
+Operators often respond with "I'll dispatch maintenance", "I'll notify courtesy patrol", or "Please provide your apartment number
+and a callback number."
+
+Common discussions also involve loud noise, parking, elevator issues, and gate failures. Phrases like "stopped up sink", "broken
+stove", "no power", or "access key won't work" are typical.
+
+Operators assist residents by contacting maintenance or courtesy patrol services as needed."""
 
 # Transcription state constants
 TRANSCRIPTION_STATE_NOT_TRANSCRIBABLE = "not-transcribable"
