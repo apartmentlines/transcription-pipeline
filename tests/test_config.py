@@ -38,3 +38,27 @@ def test_set_environment_variables():
     set_environment_variables("test_api_key", "test_domain")
     assert os.environ["TRANSCRIPTION_API_KEY"] == "test_api_key"
     assert os.environ["TRANSCRIPTION_DOMAIN"] == "test_domain"
+
+
+def test_set_environment_variables_api_key_only():
+    # Clear existing env vars
+    with patch.dict(os.environ, {}, clear=True):
+        set_environment_variables("test_api_key", None)
+        assert os.environ["TRANSCRIPTION_API_KEY"] == "test_api_key"
+        assert "TRANSCRIPTION_DOMAIN" not in os.environ
+
+
+def test_set_environment_variables_domain_only():
+    # Clear existing env vars
+    with patch.dict(os.environ, {}, clear=True):
+        set_environment_variables(None, "test_domain")
+        assert os.environ["TRANSCRIPTION_DOMAIN"] == "test_domain"
+        assert "TRANSCRIPTION_API_KEY" not in os.environ
+
+
+def test_set_environment_variables_both_none():
+    # Clear existing env vars
+    with patch.dict(os.environ, {}, clear=True):
+        set_environment_variables(None, None)
+        assert "TRANSCRIPTION_API_KEY" not in os.environ
+        assert "TRANSCRIPTION_DOMAIN" not in os.environ
