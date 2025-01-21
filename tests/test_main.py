@@ -172,10 +172,10 @@ class TestTranscriptionPipeline:
 
     def test_prepare_file_data_with_from_s3(self, pipeline):
         files = [
-            {"url": "http://example.com/file1", "metadata": '{"call_uuid": "N/A"}'},
+            {"url": "http://example.com/file1", "metadata": {"call_uuid": "N/A"}},
             {
                 "url": "http://example.com/file2",
-                "metadata": '{"call_uuid": "4125551212"}',
+                "metadata": {"call_uuid": "4125551212"},
             },
         ]
         updated_files = pipeline.prepare_file_data(files)
