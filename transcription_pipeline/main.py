@@ -79,8 +79,6 @@ class TranscriptionPipeline:
             params["min_id"] = str(self.min_id)
         if self.max_id is not None:
             params["max_id"] = str(self.max_id)
-        if self.from_s3:
-            params["from_s3"] = "1"
         return params
 
     def retrieve_file_data(self) -> List[dict] | None:
@@ -108,6 +106,8 @@ class TranscriptionPipeline:
         for file in files:
             separator = "&" if "?" in file["url"] else "?"
             file["url"] += f"{separator}api_key={self.api_key}"
+            if self.from_s3:
+                file["url"] += "&from_s3=1"
         return files
 
     def setup_configuration(self) -> None:
