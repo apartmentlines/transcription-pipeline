@@ -22,7 +22,7 @@ DEFAULT_OUTPUT_DIR = None
 DEFAULT_OUTPUT_FORMAT = "srt"
 DEFAULT_BATCH_SIZE = 16
 VALID_LANGUAGES = ["en", "es"]
-INITIAL_PROMPT = """At %s, operators engage in conversations with residents about maintenance emergencies and security issues.
+INITIAL_PROMPT = """At %s, answering service operators engage in conversations with residents about maintenance emergencies and security issues.
 
 Frequent emergencies include no A/C or heat, electrical problems, lockouts, gas leaks, and overflowing toilets.
 
