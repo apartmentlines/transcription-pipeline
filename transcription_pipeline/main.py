@@ -1,4 +1,5 @@
 import argparse
+import json
 from pathlib import Path
 from typing import Optional, List
 from copy import deepcopy
@@ -35,7 +36,6 @@ class TranscriptionPipeline:
         limit: Optional[int] = None,
         min_id: Optional[int] = None,
         max_id: Optional[int] = None,
-        from_s3: bool = False,
         processing_limit: int = DEFAULT_PROCESSING_LIMIT,
         download_queue_size: int = DEFAULT_DOWNLOAD_QUEUE_SIZE,
         download_cache: Path = DEFAULT_DOWNLOAD_CACHE,
@@ -48,7 +48,6 @@ class TranscriptionPipeline:
         self.limit = limit
         self.min_id = min_id
         self.max_id = max_id
-        self.from_s3 = from_s3
         self.processing_limit = processing_limit
         self.download_queue_size = download_queue_size
         self.download_cache = download_cache
@@ -106,8 +105,17 @@ class TranscriptionPipeline:
         for file in files:
             separator = "&" if "?" in file["url"] else "?"
             file["url"] += f"{separator}api_key={self.api_key}"
-            if self.from_s3:
-                file["url"] += "&from_s3=1"
+            # NOTE: This is a hack to force downloading from S3 specific to the Apartment Lines
+            # infrastructure.
+            try:
+                metadata = json.loads(file["metadata"])
+                if "call_uuid" in metadata and metadata["call_uuid"] == "N/A":
+                    self.log.info(
+                        f"File must be downloaded from S3. Adding from_s3=1 to {file['url']}"
+                    )
+                    file["url"] += "&from_s3=1"
+            except (KeyError, json.JSONDecodeError):
+                pass
         return files
 
     def setup_configuration(self) -> None:
@@ -146,11 +154,6 @@ def parse_arguments() -> argparse.Namespace:
         "--max-id",
         type=positive_int,
         help="Only process transcriptions with ID <= this value",
-    )
-    parser.add_argument(
-        "--from-s3",
-        action="store_true",
-        help="Download files directly from S3 instead of via HTTP",
     )
     parser.add_argument(
         "--api-key",
@@ -204,7 +207,6 @@ def main() -> None:
         limit=args.limit,
         min_id=args.min_id,
         max_id=args.max_id,
-        from_s3=args.from_s3,
         processing_limit=args.processing_limit,
         download_queue_size=args.download_queue_size,
         download_cache=args.download_cache,

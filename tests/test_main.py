@@ -37,7 +37,6 @@ class TestTranscriptionPipeline:
             limit=10,
             min_id=100,
             max_id=200,
-            from_s3=True,
             processing_limit=5,
             download_queue_size=15,
             download_cache=Path("/tmp/test"),
@@ -51,7 +50,6 @@ class TestTranscriptionPipeline:
         assert pipeline.limit == 10
         assert pipeline.min_id == 100
         assert pipeline.max_id == 200
-        assert pipeline.from_s3 is True
         assert pipeline.debug is True
 
     def test_transcription_pipeline_initialization_defaults(self):
@@ -64,7 +62,6 @@ class TestTranscriptionPipeline:
         assert pipeline.limit is None
         assert pipeline.min_id is None
         assert pipeline.max_id is None
-        assert pipeline.from_s3 is False
         assert pipeline.debug is False
 
     def test_processing_pipeline_initialization(self):
@@ -75,7 +72,6 @@ class TestTranscriptionPipeline:
             limit=10,
             min_id=100,
             max_id=200,
-            from_s3=True,
             processing_limit=5,
             download_queue_size=15,
             download_cache=Path("/tmp/test"),
@@ -175,10 +171,12 @@ class TestTranscriptionPipeline:
         assert updated_files[1]["url"] == "http://example.com/file2?api_key=test_key"
 
     def test_prepare_file_data_with_from_s3(self, pipeline):
-        pipeline.from_s3 = True
         files = [
-            {"url": "http://example.com/file1"},
-            {"url": "http://example.com/file2"},
+            {"url": "http://example.com/file1", "metadata": '{"call_uuid": "N/A"}'},
+            {
+                "url": "http://example.com/file2",
+                "metadata": '{"call_uuid": "4125551212"}',
+            },
         ]
         updated_files = pipeline.prepare_file_data(files)
         assert len(updated_files) == 2
@@ -186,10 +184,7 @@ class TestTranscriptionPipeline:
             updated_files[0]["url"]
             == "http://example.com/file1?api_key=test_key&from_s3=1"
         )
-        assert (
-            updated_files[1]["url"]
-            == "http://example.com/file2?api_key=test_key&from_s3=1"
-        )
+        assert updated_files[1]["url"] == "http://example.com/file2?api_key=test_key"
 
     def test_setup_configuration(self, pipeline):
         with patch(
@@ -212,7 +207,7 @@ class TestTranscriptionPipeline:
         assert pipeline.build_retrieve_request_params() == expected_params
 
     def test_build_retrieve_request_params_with_filters(self):
-        """Test request params with min_id, max_id, from_s3 and limit filters."""
+        """Test request params with min_id, max_id and limit filters."""
         pipeline = TranscriptionPipeline(
             api_key="test_key",
             domain="test_domain",
@@ -346,7 +341,6 @@ class TestTranscriptionPipeline:
             limit=None,
             min_id=None,
             max_id=None,
-            from_s3=False,
             processing_limit=DEFAULT_PROCESSING_LIMIT,
             download_queue_size=DEFAULT_DOWNLOAD_QUEUE_SIZE,
             download_cache=DEFAULT_DOWNLOAD_CACHE,
@@ -365,7 +359,6 @@ class TestTranscriptionPipeline:
             "100",
             "--max-id",
             "200",
-            "--from-s3",
             "--limit",
             "50",
         ]
@@ -373,7 +366,6 @@ class TestTranscriptionPipeline:
             args = parse_arguments()
             assert args.min_id == 100
             assert args.max_id == 200
-            assert args.from_s3 is True
             assert args.limit == 50
 
     @pytest.mark.usefixtures("mock_transcriber")
@@ -395,7 +387,6 @@ class TestTranscriptionPipeline:
                 "100",
                 "--max-id",
                 "200",
-                "--from-s3",
                 "--limit",
                 "50",
             ],
@@ -407,7 +398,6 @@ class TestTranscriptionPipeline:
             domain="test_domain",
             min_id=100,
             max_id=200,
-            from_s3=True,
             debug=False,
             limit=50,
             processing_limit=DEFAULT_PROCESSING_LIMIT,
@@ -440,7 +430,6 @@ def test_parse_arguments():
         "100",
         "--max-id",
         "200",
-        "--from-s3",
         "--processing-limit",
         "5",
         "--download-queue-size",
@@ -457,7 +446,6 @@ def test_parse_arguments():
         assert args.limit == 10
         assert args.min_id == 100
         assert args.max_id == 200
-        assert args.from_s3 is True
         assert args.processing_limit == 5
         assert args.download_queue_size == 15
         assert args.download_cache == Path("/tmp/test")
