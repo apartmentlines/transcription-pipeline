@@ -43,7 +43,7 @@ class TranscriptionError(Exception):
         self.original_error = str(exception)
         super().__init__(f"Transcription error: {self.original_error}")
 
-    def is_gpu_error(self) -> bool:
+    def is_transient_error(self) -> bool:
         """Check if the error is GPU-related.
 
         Returns:

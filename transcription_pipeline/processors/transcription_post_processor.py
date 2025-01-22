@@ -41,7 +41,7 @@ class TranscriptionPostProcessor(BasePostProcessor):
         if file_data.error.stage == "process":
             error = file_data.error.error
             if isinstance(error, TranscriptionError):
-                return error.is_gpu_error()
+                return error.is_transient_error()
             return True
         return False
 
