@@ -53,6 +53,19 @@ def test_transcription_error_message():
     assert str(exc_info.value) == "Transcription error: Invalid input format"
 
 
+def test_transcription_error_is_gpu_error():
+    # Test GPU errors
+    error1 = TranscriptionError("CUDA failed with error out of memory")
+    assert error1.is_gpu_error() is True
+
+    error2 = TranscriptionError("cuBLAS failed with status CUBLAS_STATUS_ALLOC_FAILED")
+    assert error2.is_gpu_error() is True
+
+    # Test non-GPU errors
+    error3 = TranscriptionError("File not found")
+    assert error3.is_gpu_error() is False
+
+
 def test_init_defaults():
     transcriber = Transcriber()
     assert transcriber.whisper_model_name == DEFAULT_WHISPER_MODEL

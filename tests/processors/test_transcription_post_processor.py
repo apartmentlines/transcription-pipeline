@@ -68,8 +68,8 @@ def test_post_process_error_state_flow(mock_post_request, file_data):
 
     processor = TranscriptionPostProcessor()
 
-    # Add a non-transient error to the file_data
-    error_msg = "Test error"
+    # Add a non-GPU TranscriptionError (which should be non-transient)
+    error_msg = "File format error"
     file_data.add_error("process", TranscriptionError(error_msg))
 
     original_result = {
@@ -266,37 +266,55 @@ def test_is_transient_download_error(file_data):
 def test_is_transient_processing_error(file_data):
     processor = TranscriptionPostProcessor()
 
-    file_data.add_error("process", TranscriptionError(ValueError("Bad format")))
+    # Test GPU-related TranscriptionError (should be transient)
+    file_data.add_error("process", TranscriptionError("CUDA failed to initialize"))
+    assert processor.is_transient_processing_error(file_data) is True
+
+    # Test cuBLAS GPU error (should be transient)
+    file_data.add_error("process", TranscriptionError("cuBLAS failed during operation"))
+    assert processor.is_transient_processing_error(file_data) is True
+
+    # Test non-GPU TranscriptionError (should not be transient)
+    file_data.add_error("process", TranscriptionError("Invalid audio format"))
     assert processor.is_transient_processing_error(file_data) is False
 
+    # Test other error types (should be transient)
     file_data.add_error("process", RuntimeError("Unexpected error"))
     assert processor.is_transient_processing_error(file_data) is True
 
+    # Test non-process stage error (should not be transient)
     file_data.add_error("download", Exception())
     assert processor.is_transient_processing_error(file_data) is False
 
 
-def test_determine_result_state_transient_error(file_data):
+def test_determine_result_state_transient_error():
     processor = TranscriptionPostProcessor()
+    result = {"success": False}
 
     # Test transient download error
     download_file = FileData(id="123", name="test_file", url="http://example.com/file")
     download_file.add_error("download", requests.exceptions.ConnectionError())
     with pytest.raises(TransientPipelineError):
-        processor.determine_result_state(None, download_file)
+        processor.determine_result_state(result, download_file)
 
     # Test transient processing error
     process_file = FileData(id="123", name="test_file", url="http://example.com/file")
     process_file.add_error("process", ValueError())
     with pytest.raises(TransientPipelineError):
-        processor.determine_result_state(None, process_file)
+        processor.determine_result_state(result, process_file)
 
-    # Test non-transient error
+    # Test GPU-related error (should be transient)
+    gpu_error_file = FileData(id="123", name="test_file", url="http://example.com/file")
+    gpu_error_file.add_error("process", TranscriptionError("CUDA failed to initialize"))
+    with pytest.raises(TransientPipelineError):
+        processor.determine_result_state(result, gpu_error_file)
+
+    # Test non-GPU TranscriptionError (should not be transient)
     non_transient_file = FileData(
         id="123", name="test_file", url="http://example.com/file"
     )
-    non_transient_file.add_error("process", TranscriptionError(ValueError()))
-    result_state = processor.determine_result_state(None, non_transient_file)
+    non_transient_file.add_error("process", TranscriptionError("Invalid audio format"))
+    result_state = processor.determine_result_state(result, non_transient_file)
     assert result_state == {
         "id": non_transient_file.id,
         "success": False,

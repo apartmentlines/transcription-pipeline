@@ -40,7 +40,9 @@ class TranscriptionPostProcessor(BasePostProcessor):
     def is_transient_processing_error(self, file_data: FileData) -> bool:
         if file_data.error.stage == "process":
             error = file_data.error.error
-            return not isinstance(error, (TranscriptionError,))
+            if isinstance(error, TranscriptionError):
+                return error.is_gpu_error()
+            return True
         return False
 
     def post_process(self, result: dict, file_data: FileData) -> None:

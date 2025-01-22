@@ -37,8 +37,19 @@ def _import_dependencies():
 class TranscriptionError(Exception):
     """Custom exception for errors that occur during transcription."""
 
+    TRANSIENT_ERROR_PHRASES = ["CUDA failed", "cuBLAS failed"]
+
     def __init__(self, exception):
-        super().__init__(f"Transcription error: {str(exception)}")
+        self.original_error = str(exception)
+        super().__init__(f"Transcription error: {self.original_error}")
+
+    def is_gpu_error(self) -> bool:
+        """Check if the error is GPU-related.
+
+        Returns:
+            bool: True if the error message contains GPU-related phrases, False otherwise.
+        """
+        return any(phrase in self.original_error for phrase in self.TRANSIENT_ERROR_PHRASES)
 
 
 class Transcriber:
