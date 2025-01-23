@@ -3,6 +3,7 @@
 import argparse
 import os
 import sys
+import gc
 from copy import deepcopy
 from pathlib import Path
 from typing import Optional, Union, Dict, Any, TYPE_CHECKING
@@ -380,6 +381,7 @@ class Transcriber:
         """
         self.log.info(f"Starting transcription of {input_file}")
         try:
+            _, _, torch = _import_dependencies()  # noqa : F401
             validated_path = self._validate_input_file(input_file)
             audio = self._load_audio(validated_path)
             result = self._perform_base_transcription(audio, initial_prompt)
@@ -388,6 +390,9 @@ class Transcriber:
                 result["segments"], audio, result["language"]
             )
             final_result = self._handle_diarization(audio, aligned_result, num_speakers)
+            del audio
+            gc.collect()
+            torch.cuda.empty_cache()
             augmented_result = deepcopy(final_result)
             self._extract_transcription_metadata(augmented_result)
             self._save_output(final_result, input_file, output_dir, output_format)
