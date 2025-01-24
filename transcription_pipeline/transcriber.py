@@ -401,8 +401,14 @@ class Transcriber:
         :raises Exception: For any transcription-related errors
         """
         self.log.info(f"Starting transcription of {input_file}")
+        _, _, torch = _import_dependencies()  # noqa : F401
         try:
             validated_path = self._validate_input_file(input_file)
+            self.log.debug(
+                f"Memory before processing {validated_path}: "
+                f"{torch.cuda.memory_allocated() / 1e6} MB allocated, "
+                f"{torch.cuda.memory_reserved() / 1e6} MB reserved"
+            )
             audio = self._load_audio(validated_path)
             result = self._perform_base_transcription(audio, initial_prompt)
             self._validate_language(result["language"])
@@ -417,11 +423,19 @@ class Transcriber:
             del result
             del aligned_result
             del final_result
+            self.log.debug(
+                f"Memory after processing {validated_path}: "
+                f"{torch.cuda.memory_allocated() / 1e6} MB allocated, "
+                f"{torch.cuda.memory_reserved() / 1e6} MB reserved"
+            )
             return augmented_result
         except Exception as e:
             self.log.error(f"Transcription failed: {str(e)}")
             self.log.debug(f"Full error details: {repr(e)}")
             raise
+        finally:
+            torch.cuda.empty_cache()
+
 
 
 def parse_arguments() -> argparse.Namespace:

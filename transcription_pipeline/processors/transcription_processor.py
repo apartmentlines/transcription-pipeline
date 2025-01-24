@@ -1,5 +1,6 @@
 from download_pipeline_processor.processors.base_processor import BaseProcessor
 from download_pipeline_processor.file_data import FileData
+from typing import TYPE_CHECKING
 from whisperx.utils import get_writer
 from ..transcriber import Transcriber
 import tempfile
@@ -7,12 +8,6 @@ import os
 from transcription_pipeline.constants import (
     INITIAL_PROMPT,
 )
-
-
-def _import_dependencies():
-    """Lazily import heavy dependencies only when needed."""
-    global torch
-    return torch
 
 
 class TranscriptionProcessor(BaseProcessor):
@@ -54,20 +49,9 @@ class TranscriptionProcessor(BaseProcessor):
         :return: Dictionary containing transcription results or error information
         """
         self.log.info(f"Transcribing {file_data.name}, {file_data.record_name}")
-        torch = _import_dependencies()
         try:
             initial_prompt = INITIAL_PROMPT % file_data.record_name
-            self.log.debug(
-                f"Memory before processing {file_data.name}: "
-                f"{torch.cuda.memory_allocated() / 1e6} MB allocated, "
-                f"{torch.cuda.memory_reserved() / 1e6} MB reserved"
-            )
             result = self.transcriber.transcribe(file_data.local_path, initial_prompt)
-            self.log.debug(
-                f"Memory after processing {file_data.name}: "
-                f"{torch.cuda.memory_allocated() / 1e6} MB allocated, "
-                f"{torch.cuda.memory_reserved() / 1e6} MB reserved"
-            )
             self.log.debug(f"Transcription successful for {file_data.id}")
             self.log.debug(f"Language detected: {result.get('language')}")
             self.log.debug(f"Number of segments: {len(result.get('segments', []))}")
@@ -89,5 +73,3 @@ class TranscriptionProcessor(BaseProcessor):
             self.log.error(f"Transcription failed: {str(e)}")
             self.log.debug(f"Full error details: {repr(e)}")
             raise
-        finally:
-            torch.cuda.empty_cache()
