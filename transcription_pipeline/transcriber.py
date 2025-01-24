@@ -175,13 +175,14 @@ class Transcriber:
                     audio,
                     batch_size=DEFAULT_BATCH_SIZE,
                 )
+            result = self._move_result_tensors_to_cpu(result)
+            self.log.debug(
+                f"Base transcription complete with {len(result['segments'])} segments"
+            )
+            return result
         except Exception as e:
             self.log.error(f"Failed to perform base transcription: {str(e)}")
             raise TranscriptionError(e) from e
-        self.log.debug(
-            f"Base transcription complete with {len(result['segments'])} segments"
-        )
-        return result
 
     def load_alignment_model(self, language: str) -> Tuple[Any, dict]:
         """Load alignment model for a specific language.
@@ -224,6 +225,7 @@ class Transcriber:
                     self.device,
                     return_char_alignments=True,
                 )
+            aligned_result = self._move_result_tensors_to_cpu(aligned_result)
         except Exception as e:
             self.log.error(f"Failed to perform alignment: {str(e)}")
             raise TranscriptionError(e) from e
@@ -250,7 +252,9 @@ class Transcriber:
             if self.diarization_model:
                 _, _, torch = _import_dependencies()  # noqa : F401
                 with torch.inference_mode():
-                    return self.diarization_model(audio, num_speakers=num_speakers)
+                    diarization_result = self.diarization_model(audio, num_speakers=num_speakers)
+                diarization_result = self._move_result_tensors_to_cpu(diarization_result)
+                return diarization_result
         except Exception as e:
             self.log.error(f"Failed to perform diarization: {str(e)}")
             raise TranscriptionError(e) from e
@@ -378,6 +382,29 @@ class Transcriber:
                 final_result["average_word_confidence"] = round(
                     float(avg_confidence), 4
                 )
+
+    def _move_result_tensors_to_cpu(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        # Recursively move all tensors in the result dict to CPU
+        _, _, torch = _import_dependencies()  # noqa : F401
+        for key, value in result.items():
+            if isinstance(value, torch.Tensor):
+                result[key] = value.cpu()
+            elif isinstance(value, list):
+                result[key] = [self._move_tensors_in_item(v) for v in value]
+            elif isinstance(value, dict):
+                result[key] = self._move_result_tensors_to_cpu(value)
+        return result
+
+    def _move_tensors_in_item(self, item: Any) -> Any:
+        _, _, torch = _import_dependencies()  # noqa : F401
+        if isinstance(item, torch.Tensor):
+            return item.cpu()
+        elif isinstance(item, list):
+            return [self._move_tensors_in_item(i) for i in item]
+        elif isinstance(item, dict):
+            return self._move_result_tensors_to_cpu(item)
+        else:
+            return item
 
     def transcribe(
         self,
