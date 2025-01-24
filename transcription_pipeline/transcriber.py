@@ -5,7 +5,7 @@ import os
 import sys
 from copy import deepcopy
 from pathlib import Path
-from typing import Optional, Union, Dict, Any, TYPE_CHECKING
+from typing import Optional, Union, Dict, Any, Tuple, TYPE_CHECKING
 from whisperx.utils import get_writer
 from download_pipeline_processor.logger import Logger
 from .constants import (
@@ -49,7 +49,9 @@ class TranscriptionError(Exception):
         Returns:
             bool: True if the error message contains GPU-related phrases, False otherwise.
         """
-        return any(phrase in self.original_error for phrase in self.TRANSIENT_ERROR_PHRASES)
+        return any(
+            phrase in self.original_error for phrase in self.TRANSIENT_ERROR_PHRASES
+        )
 
 
 class Transcriber:
@@ -89,6 +91,7 @@ class Transcriber:
         self.diarization_model_name = diarization_model_name
         self.auth_token = auth_token or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
         self._initialize_whisper_model()
+        self.alignment_models = {}
         self._initialize_diarization_model()
 
     def _initialize_whisper_model(self) -> None:
@@ -159,7 +162,7 @@ class Transcriber:
         :param audio: Numpy array containing audio data
         :return: Dictionary containing transcription results and metadata
         """
-        _, _, _ = _import_dependencies()
+        _, _, torch = _import_dependencies()  # noqa : F401
         self.log.info("Performing base transcription")
         self.log.debug(f"Using batch size: {DEFAULT_BATCH_SIZE}")
         self.log.debug(f"Initial prompt: {initial_prompt}")
@@ -167,10 +170,11 @@ class Transcriber:
             # WhisperX doesn't allow passing the prompt to transcribe(), so hack
             # the options directly.
             self.model.options.initial_prompt = initial_prompt
-            result = self.model.transcribe(
-                audio,
-                batch_size=DEFAULT_BATCH_SIZE,
-            )
+            with torch.inference_mode():
+                result = self.model.transcribe(
+                    audio,
+                    batch_size=DEFAULT_BATCH_SIZE,
+                )
         except Exception as e:
             self.log.error(f"Failed to perform base transcription: {str(e)}")
             raise TranscriptionError(e) from e
@@ -178,6 +182,23 @@ class Transcriber:
             f"Base transcription complete with {len(result['segments'])} segments"
         )
         return result
+
+    def load_alignment_model(self, language: str) -> Tuple[Any, dict]:
+        """Load alignment model for a specific language.
+
+        :param language: Detected language code
+        :return: Tuple containing alignment model and metadata
+        """
+        if language not in self.alignment_models:
+            self.log.info(f"Loading alignment model for language: {language}")
+            model_a, metadata = self.whisperx.load_align_model(
+                language_code=language, device=self.device
+            )
+            self.alignment_models[language] = (model_a, metadata)
+        else:
+            self.log.debug(f"Loading cached alignment model for language: {language}")
+            model_a, metadata = self.alignment_models[language]
+        return model_a, metadata
 
     def _align_transcription(
         self, segments: list, audio: "np.ndarray", language: str
@@ -189,25 +210,26 @@ class Transcriber:
         :param language: Detected language code
         :return: Dictionary containing aligned transcription results
         """
-        _, _, _ = _import_dependencies()
+        _, _, torch = _import_dependencies()  # noqa : F401
         self.log.info("Aligning transcription with audio")
-        self.log.debug(f"Loading alignment model for language: {language}")
-        model_a, metadata = self.whisperx.load_align_model(
-            language_code=language, device=self.device
-        )
+        model_a, metadata = self.load_alignment_model(language)
         self.log.debug("Performing alignment")
         try:
-            aligned_result = self.whisperx.align(
-                segments,
-                model_a,
-                metadata,
-                audio,
-                self.device,
-                return_char_alignments=True,
-            )
+            with torch.inference_mode():
+                aligned_result = self.whisperx.align(
+                    segments,
+                    model_a,
+                    metadata,
+                    audio,
+                    self.device,
+                    return_char_alignments=True,
+                )
         except Exception as e:
             self.log.error(f"Failed to perform alignment: {str(e)}")
             raise TranscriptionError(e) from e
+        finally:
+            del model_a
+            del metadata
         self.log.debug(
             f"Alignment complete with {len(aligned_result['segments'])} segments"
         )
@@ -223,12 +245,12 @@ class Transcriber:
         :param num_speakers: Expected number of speakers in the audio
         :return: Dictionary containing diarization results or None if diarization fails
         """
-        _, _, _ = _import_dependencies()
         self.log.info(f"Performing diarization with {num_speakers} speakers")
         try:
-            return self.diarization_model and self.diarization_model(
-                audio, num_speakers=num_speakers
-            )
+            if self.diarization_model:
+                _, _, torch = _import_dependencies()  # noqa : F401
+                with torch.inference_mode():
+                    return self.diarization_model(audio, num_speakers=num_speakers)
         except Exception as e:
             self.log.error(f"Failed to perform diarization: {str(e)}")
             raise TranscriptionError(e) from e
@@ -391,6 +413,10 @@ class Transcriber:
             augmented_result = deepcopy(final_result)
             self._extract_transcription_metadata(augmented_result)
             self._save_output(final_result, input_file, output_dir, output_format)
+            del audio
+            del result
+            del aligned_result
+            del final_result
             return augmented_result
         except Exception as e:
             self.log.error(f"Transcription failed: {str(e)}")
