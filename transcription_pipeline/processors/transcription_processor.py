@@ -1,6 +1,5 @@
 from download_pipeline_processor.processors.base_processor import BaseProcessor
 from download_pipeline_processor.file_data import FileData
-from typing import TYPE_CHECKING
 from whisperx.utils import get_writer
 from ..transcriber import Transcriber
 import tempfile

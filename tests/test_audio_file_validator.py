@@ -160,7 +160,7 @@ def test_main_success(tmp_path, capsys, mock_wave_module, mock_wav_file):
             assert captured.err == ""
 
 
-def test_main_failure(tmp_path, capsys):
+def test_main_failure(capsys):
     with patch("sys.argv", ["script.py", "nonexistent.wav"]):
         with pytest.raises(SystemExit) as exc_info:
             main()
