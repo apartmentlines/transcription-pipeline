@@ -69,10 +69,10 @@ def test_transcription_error_is_transient_error():
 def test_init_defaults():
     transcriber = Transcriber()
     assert transcriber.whisper_model_name == DEFAULT_WHISPER_MODEL
-    assert transcriber.device == "cpu"  # We know it's CPU because cuda is mocked False
-    assert (
-        transcriber.compute_type == "int8"
-    )  # We know it's int8 because cuda is mocked False
+    # We know it's CPU/int8 because cuda is mocked False
+    assert transcriber.device == "cpu"
+    assert transcriber.compute_type == "int8"
+    assert transcriber.alignment_models == {}
 
 
 def test_init_custom_values():
@@ -84,6 +84,7 @@ def test_init_custom_values():
     assert transcriber.whisper_model_name == "custom-model"
     assert transcriber.device == "cpu"
     assert transcriber.compute_type == "int8"
+    assert transcriber.alignment_models == {}
 
 
 def test_initialize_whisper_model(mock_dependencies):
@@ -92,6 +93,81 @@ def test_initialize_whisper_model(mock_dependencies):
     mock_whisperx.load_model.assert_called_once_with(
         DEFAULT_WHISPER_MODEL, transcriber.device, compute_type=transcriber.compute_type
     )
+
+
+def test_load_alignment_model_caching(mock_dependencies):
+    # Mock whisperx's load_align_model
+    _, mock_whisperx, _ = mock_dependencies.return_value
+    mock_align_model = Mock()
+    mock_align_metadata = {"metadata": "test"}
+    mock_whisperx.load_align_model.return_value = (
+        mock_align_model,
+        mock_align_metadata,
+    )
+
+    transcriber = Transcriber()
+
+    # Call load_alignment_model for the first time
+    model_a1, metadata1 = transcriber.load_alignment_model("en")
+    mock_whisperx.load_align_model.assert_called_once_with(
+        language_code="en", device=transcriber.device
+    )
+    assert transcriber.alignment_models["en"] == (model_a1, metadata1)
+
+    # Reset mock call count
+    mock_whisperx.load_align_model.reset_mock()
+
+    # Call load_alignment_model again for 'en'
+    model_a2, metadata2 = transcriber.load_alignment_model("en")
+    mock_whisperx.load_align_model.assert_not_called()
+    assert model_a1 == model_a2
+    assert metadata1 == metadata2
+
+
+def test_load_alignment_model_multiple_languages(mock_dependencies):
+    # Mock whisperx's load_align_model
+    _, mock_whisperx, _ = mock_dependencies.return_value
+    mock_align_model_en = Mock()
+    mock_align_metadata_en = {"metadata": "english"}
+    mock_align_model_es = Mock()
+    mock_align_metadata_es = {"metadata": "spanish"}
+
+    # Side effects to return different models for different languages
+    def load_align_model_side_effect(language_code, device):
+        if language_code == "en":
+            return (mock_align_model_en, mock_align_metadata_en)
+        elif language_code == "es":
+            return (mock_align_model_es, mock_align_metadata_es)
+        else:
+            return (Mock(), {})
+
+    mock_whisperx.load_align_model.side_effect = load_align_model_side_effect
+
+    transcriber = Transcriber()
+
+    # Load 'en' alignment model
+    model_en, metadata_en = transcriber.load_alignment_model("en")
+    mock_whisperx.load_align_model.assert_called_with(
+        language_code="en", device=transcriber.device
+    )
+
+    # Load 'es' alignment model
+    model_es, metadata_es = transcriber.load_alignment_model("es")
+    mock_whisperx.load_align_model.assert_called_with(
+        language_code="es", device=transcriber.device
+    )
+
+    # Ensure both models are cached
+    assert transcriber.alignment_models["en"] == (model_en, metadata_en)
+    assert transcriber.alignment_models["es"] == (model_es, metadata_es)
+
+    # Reset mock call count
+    mock_whisperx.load_align_model.reset_mock()
+
+    # Load 'en' again; should use cached model
+    model_en_cached, _ = transcriber.load_alignment_model("en")
+    mock_whisperx.load_align_model.assert_not_called()
+    assert model_en_cached == model_en
 
 
 def test_initialize_diarization_model_with_model(mock_dependencies):
@@ -154,6 +230,26 @@ def test_load_audio_error(mock_dependencies):
         transcriber._load_audio("test.wav")
 
 
+def test_perform_base_transcription_inference_mode(mock_dependencies, initial_prompt):
+    _, _, mock_torch = mock_dependencies.return_value
+    mock_inference_mode = mock_torch.inference_mode.return_value
+    mock_model = Mock()
+    mock_model.transcribe.return_value = {"segments": [{"text": "test"}]}
+
+    transcriber = Transcriber()
+    transcriber.model = mock_model
+
+    test_audio = np.array([1.0, 2.0])
+
+    transcriber._perform_base_transcription(test_audio, initial_prompt)
+
+    # Assert that torch.inference_mode() was called
+    mock_torch.inference_mode.assert_called_once()
+    # Assert that the context manager was entered and exited
+    mock_inference_mode.__enter__.assert_called_once()
+    mock_inference_mode.__exit__.assert_called_once()
+
+
 def test_perform_base_transcription(initial_prompt):
     mock_model = Mock()
     mock_model.transcribe.return_value = {"segments": [{"text": "test"}]}
@@ -188,15 +284,15 @@ def test_perform_base_transcription_error(initial_prompt):
 
 def test_align_transcription(mock_dependencies):
     _, mock_whisperx, _ = mock_dependencies.return_value
-    mock_whisperx.load_align_model.return_value = (Mock(), Mock())
+    transcriber = Transcriber()
+    transcriber.load_alignment_model = Mock(return_value=(Mock(), Mock()))
     mock_whisperx.align.return_value = {"segments": [{"text": "aligned"}]}
 
-    transcriber = Transcriber()
     test_audio = Mock()
     result = transcriber._align_transcription([{"text": "test"}], test_audio, "en")
 
     assert "segments" in result
-    mock_whisperx.load_align_model.assert_called_once()
+    transcriber.load_alignment_model.assert_called_once_with("en")
 
     # Verify the call arguments
     call_args = mock_whisperx.align.call_args
@@ -207,11 +303,29 @@ def test_align_transcription(mock_dependencies):
     assert kwargs.get("return_char_alignments") is True
 
 
-def test_align_transcription_load_model_error(mock_dependencies):
-    _, mock_whisperx, _ = mock_dependencies.return_value
-    mock_whisperx.load_align_model.side_effect = Exception("Model load failed")
+def test_align_transcription_inference_mode(mock_dependencies):
+    _, mock_whisperx, mock_torch = mock_dependencies.return_value
+    mock_inference_mode = mock_torch.inference_mode.return_value
+    mock_align_result = {"segments": [{"text": "aligned"}]}
+    mock_whisperx.align.return_value = mock_align_result
 
     transcriber = Transcriber()
+    transcriber.load_alignment_model = Mock(return_value=(Mock(), {}))
+
+    test_audio = np.array([1.0, 2.0])
+
+    transcriber._align_transcription([{"text": "test"}], test_audio, "en")
+
+    # Assert that torch.inference_mode() was called
+    mock_torch.inference_mode.assert_called_once()
+    # Assert that the context manager was entered and exited
+    mock_inference_mode.__enter__.assert_called_once()
+    mock_inference_mode.__exit__.assert_called_once()
+
+
+def test_align_transcription_load_model_error():
+    transcriber = Transcriber()
+    transcriber.load_alignment_model = Mock(side_effect=Exception("Model load failed"))
     with pytest.raises(Exception, match="Model load failed"):
         transcriber._align_transcription([{"text": "test"}], np.array([1.0, 2.0]), "en")
 
@@ -224,6 +338,26 @@ def test_align_transcription_align_error(mock_dependencies):
     transcriber = Transcriber()
     with pytest.raises(TranscriptionError):
         transcriber._align_transcription([{"text": "test"}], np.array([1.0, 2.0]), "en")
+
+
+def test_perform_diarization_inference_mode(mock_dependencies):
+    _, _, mock_torch = mock_dependencies.return_value
+    mock_inference_mode = mock_torch.inference_mode.return_value
+    mock_diarization_model = Mock()
+    mock_diarization_model.return_value = {"segments": [{"speaker": "SPEAKER_1"}]}
+
+    transcriber = Transcriber()
+    transcriber.diarization_model = mock_diarization_model
+
+    test_audio = np.array([1.0, 2.0])
+
+    transcriber._perform_diarization(test_audio, 2)
+
+    # Assert that torch.inference_mode() was called
+    mock_torch.inference_mode.assert_called_once()
+    # Assert that the context manager was entered and exited
+    mock_inference_mode.__enter__.assert_called_once()
+    mock_inference_mode.__exit__.assert_called_once()
 
 
 def test_perform_diarization():
@@ -395,6 +529,33 @@ def test_extract_transcription_metadata_empty_segments():
     )  # Should not be present with empty word_segments
 
 
+def test_move_result_tensors_to_cpu(mock_dependencies):
+    _, _, mock_torch = mock_dependencies.return_value
+    mock_tensor = Mock(spec=mock_torch.Tensor)
+    mock_tensor.cpu.return_value = "cpu_tensor"
+
+    result = {
+        "tensor_value": mock_tensor,
+        "nested_dict": {
+            "tensor_in_dict": mock_tensor,
+        },
+        "list_of_tensors": [mock_tensor, mock_tensor],
+        "non_tensor": "string_value",
+    }
+
+    transcriber = Transcriber()
+    processed_result = transcriber._move_result_tensors_to_cpu(result)
+
+    # Assertions
+    assert processed_result["tensor_value"] == "cpu_tensor"
+    assert processed_result["nested_dict"]["tensor_in_dict"] == "cpu_tensor"
+    assert processed_result["list_of_tensors"] == ["cpu_tensor", "cpu_tensor"]
+    assert processed_result["non_tensor"] == "string_value"
+
+    # Verify that cpu() was called on all tensors
+    assert mock_tensor.cpu.call_count == 4
+
+
 def test_validate_language_supported():
     transcriber = Transcriber()
     # Should not raise any exception
@@ -454,6 +615,36 @@ def test_extract_transcription_metadata_missing_fields():
     )  # Only uses segments with valid scores
 
 
+def test_transcribe_calls_empty_cache(mock_dependencies, tmp_path, initial_prompt):
+    _, _, mock_torch = mock_dependencies.return_value
+    mock_empty_cache = mock_torch.cuda.empty_cache
+
+    mock_model = Mock()
+    mock_model.transcribe.return_value = {
+        "segments": [{"text": "test"}],
+        "language": "en",
+    }
+
+    mock_whisperx = mock_dependencies.return_value[1]
+    mock_whisperx.load_audio.return_value = np.array([1.0, 2.0])
+    mock_whisperx.load_align_model.return_value = (Mock(), {})
+    mock_whisperx.align.return_value = {
+        "segments": [{"text": "aligned"}],
+        "language": "en",
+    }
+
+    transcriber = Transcriber()
+    transcriber.model = mock_model
+
+    test_file = tmp_path / "test.wav"
+    test_file.touch()
+
+    transcriber.transcribe(test_file, initial_prompt)
+
+    # Assert that torch.cuda.empty_cache() was called
+    mock_empty_cache.assert_called_once()
+
+
 def test_transcribe_integration_error_propagation(
     tmp_path, mock_transcription_result, mock_dependencies, initial_prompt
 ):
@@ -492,7 +683,6 @@ def test_transcribe_integration(
     mock_whisperx.load_audio.return_value = Mock()
     mock_whisperx.load_align_model.return_value = (Mock(), Mock())
 
-    # Configure mock returns with metadata
     mock_model = Mock()
     mock_model.transcribe.return_value = {
         **mock_transcription_result,

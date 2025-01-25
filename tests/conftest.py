@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import patch, Mock
+import numpy as np
 from download_pipeline_processor.file_data import (  # pyright: ignore[reportMissingImports]
     FileData,
 )
@@ -9,15 +10,30 @@ from transcription_pipeline.constants import INITIAL_PROMPT
 @pytest.fixture(autouse=True)
 def mock_dependencies():
     """Mock all heavy dependencies for faster test execution."""
-    mock_np = Mock()
     mock_whisperx = Mock()
     mock_torch = Mock()
+
+    class MockTensor:
+        def cpu(self):
+            pass
+
+    mock_torch.Tensor = MockTensor
+
     mock_torch.cuda.is_available.return_value = False
+    mock_torch.cuda.memory_allocated.return_value = 0
+    mock_torch.cuda.memory_reserved.return_value = 0
+    mock_torch.cuda.empty_cache = Mock()
+
+    # Mock torch.inference_mode as a context manager
+    inference_mode_mock = Mock()
+    inference_mode_mock.__enter__ = Mock(return_value=None)
+    inference_mode_mock.__exit__ = Mock(return_value=None)
+    mock_torch.inference_mode.return_value = inference_mode_mock
 
     with patch(
         "transcription_pipeline.transcriber._import_dependencies"
     ) as mock_import:
-        mock_import.return_value = (mock_np, mock_whisperx, mock_torch)
+        mock_import.return_value = (np, mock_whisperx, mock_torch)
         yield mock_import
 
 
