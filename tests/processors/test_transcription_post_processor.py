@@ -3,8 +3,12 @@ import requests
 import os
 
 from unittest.mock import patch, Mock
-from download_pipeline_processor.error import TransientPipelineError
-from download_pipeline_processor.file_data import FileData
+from download_pipeline_processor.error import (  # pyright: ignore[reportMissingImports]
+    TransientPipelineError,
+)
+from download_pipeline_processor.file_data import (  # pyright: ignore[reportMissingImports]
+    FileData,
+)
 from transcription_pipeline.transcriber import TranscriptionError
 from transcription_pipeline.processors.transcription_post_processor import (
     TranscriptionPostProcessor,

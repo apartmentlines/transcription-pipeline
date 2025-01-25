@@ -1,5 +1,9 @@
-from download_pipeline_processor.processors.base_pre_processor import BasePreProcessor
-from download_pipeline_processor.file_data import FileData
+from download_pipeline_processor.processors.base_pre_processor import (  # pyright: ignore[reportMissingImports]
+    BasePreProcessor,
+)
+from download_pipeline_processor.file_data import (  # pyright: ignore[reportMissingImports]
+    FileData,
+)
 from transcription_pipeline.audio_file_validator import AudioFileValidator
 
 

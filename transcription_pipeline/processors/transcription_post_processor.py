@@ -2,9 +2,15 @@ import os
 import json
 import requests
 import traceback
-from download_pipeline_processor.processors.base_post_processor import BasePostProcessor
-from download_pipeline_processor.file_data import FileData
-from download_pipeline_processor.error import TransientPipelineError
+from download_pipeline_processor.processors.base_post_processor import (  # pyright: ignore[reportMissingImports]
+    BasePostProcessor,
+)
+from download_pipeline_processor.file_data import (  # pyright: ignore[reportMissingImports]
+    FileData,
+)
+from download_pipeline_processor.error import (  # pyright: ignore[reportMissingImports]
+    TransientPipelineError,
+)
 from transcription_pipeline.transcriber import TranscriptionError
 from transcription_pipeline.utils import post_request
 

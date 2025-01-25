@@ -6,7 +6,9 @@ import argparse
 from pathlib import Path
 from typing import Union, Any
 
-from download_pipeline_processor.logger import Logger
+from download_pipeline_processor.logger import (  # pyright: ignore[reportMissingImports]
+    Logger,
+)
 from .constants import (
     MIN_AUDIO_DURATION,
     MAX_AUDIO_DURATION,

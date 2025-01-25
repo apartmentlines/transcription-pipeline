@@ -1,7 +1,9 @@
 import pytest
 from pathlib import Path
 from unittest.mock import patch, Mock
-from download_pipeline_processor.processing_pipeline import ProcessingPipeline
+from download_pipeline_processor.processing_pipeline import (  # pyright: ignore[reportMissingImports]
+    ProcessingPipeline,
+)
 from transcription_pipeline.processors.transcription_pre_processor import (
     TranscriptionPreProcessor,
 )

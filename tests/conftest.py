@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import patch, Mock
-from download_pipeline_processor.file_data import FileData
+from download_pipeline_processor.file_data import (  # pyright: ignore[reportMissingImports]
+    FileData,
+)
 from transcription_pipeline.constants import INITIAL_PROMPT
 
 

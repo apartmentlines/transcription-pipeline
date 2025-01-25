@@ -7,7 +7,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Optional, Union, Dict, Any, Tuple, TYPE_CHECKING
 from whisperx.utils import get_writer
-from download_pipeline_processor.logger import Logger
+from download_pipeline_processor.logger import (  # pyright: ignore[reportMissingImports]
+    Logger,
+)
 from .constants import (
     DEFAULT_WHISPER_MODEL,
     DEFAULT_NUM_SPEAKERS,
@@ -252,8 +254,12 @@ class Transcriber:
             if self.diarization_model:
                 _, _, torch = _import_dependencies()  # noqa : F401
                 with torch.inference_mode():
-                    diarization_result = self.diarization_model(audio, num_speakers=num_speakers)
-                diarization_result = self._move_result_tensors_to_cpu(diarization_result)
+                    diarization_result = self.diarization_model(
+                        audio, num_speakers=num_speakers
+                    )
+                diarization_result = self._move_result_tensors_to_cpu(
+                    diarization_result
+                )
                 return diarization_result
         except Exception as e:
             self.log.error(f"Failed to perform diarization: {str(e)}")
@@ -462,7 +468,6 @@ class Transcriber:
             raise
         finally:
             torch.cuda.empty_cache()
-
 
 
 def parse_arguments() -> argparse.Namespace:

@@ -2,8 +2,12 @@ import argparse
 from pathlib import Path
 from typing import Optional, List
 from copy import deepcopy
-from download_pipeline_processor.processing_pipeline import ProcessingPipeline
-from download_pipeline_processor.logger import Logger
+from download_pipeline_processor.processing_pipeline import (  # pyright: ignore[reportMissingImports]
+    ProcessingPipeline,
+)
+from download_pipeline_processor.logger import (  # pyright: ignore[reportMissingImports]
+    Logger,
+)
 from transcription_pipeline.processors.transcription_pre_processor import (
     TranscriptionPreProcessor,
 )
