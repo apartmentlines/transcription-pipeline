@@ -108,17 +108,6 @@ class TranscriptionPipeline:
         for file in files:
             separator = "&" if "?" in file["url"] else "?"
             file["url"] += f"{separator}api_key={self.api_key}"
-            # NOTE: This is a hack to force downloading from S3 specific to the Apartment Lines
-            # infrastructure.
-            if (
-                "metadata" in file
-                and "call_uuid" in file["metadata"]
-                and file["metadata"]["call_uuid"] == "N/A"
-            ):
-                self.log.info(
-                    f"File must be downloaded from S3. Adding from_s3=1 to {file['url']}"
-                )
-                file["url"] += "&from_s3=1"
         return files
 
     def setup_configuration(self) -> None:

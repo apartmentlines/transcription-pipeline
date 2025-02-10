@@ -172,22 +172,6 @@ class TestTranscriptionPipeline:
         assert updated_files[0]["url"] == "http://example.com/file1?api_key=test_key"
         assert updated_files[1]["url"] == "http://example.com/file2?api_key=test_key"
 
-    def test_prepare_file_data_with_from_s3(self, pipeline):
-        files = [
-            {"url": "http://example.com/file1", "metadata": {"call_uuid": "N/A"}},
-            {
-                "url": "http://example.com/file2",
-                "metadata": {"call_uuid": "4125551212"},
-            },
-        ]
-        updated_files = pipeline.prepare_file_data(files)
-        assert len(updated_files) == 2
-        assert (
-            updated_files[0]["url"]
-            == "http://example.com/file1?api_key=test_key&from_s3=1"
-        )
-        assert updated_files[1]["url"] == "http://example.com/file2?api_key=test_key"
-
     def test_setup_configuration(self, pipeline):
         with patch(
             "transcription_pipeline.main.set_environment_variables"
