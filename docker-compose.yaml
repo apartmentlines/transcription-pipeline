@@ -25,6 +25,13 @@ services:
         - *secrets_environment
     command: *default_command
     networks: *default_networks
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
 networks:
   transcription-pipeline-network:

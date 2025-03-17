@@ -6,6 +6,7 @@ WORKDIR /usr/src/transcription-pipeline
 RUN apt-get update && apt-get install -y --no-install-recommends gcc python3-dev
 RUN apt-get update && apt-get install -y --no-install-recommends curl net-tools
 RUN apt-get update && apt-get install -y --no-install-recommends vim procps
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg
 
 COPY . .
 
