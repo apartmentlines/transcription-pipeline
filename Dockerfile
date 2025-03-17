@@ -8,6 +8,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl net-tools
 RUN apt-get update && apt-get install -y --no-install-recommends vim procps
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg
 
+RUN wget https://developer.download.nvidia.com/compute/cudnn/9.8.0/local_installers/cudnn-local-repo-debian12-9.8.0_1.0-1_amd64.deb
+RUN dpkg -i cudnn-local-repo-debian12-9.8.0_1.0-1_amd64.deb
+RUN rm cudnn-local-repo-debian12-9.8.0_1.0-1_amd64.deb
+RUN cp /var/cudnn-local-repo-debian12-9.8.0/cudnn-*-keyring.gpg /usr/share/keyrings/
+RUN apt-get update && apt-get install -y --no-install-recommends cudnn
+ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
+
 COPY . .
 
 RUN pip install --no-cache-dir -r requirements-initial.txt
