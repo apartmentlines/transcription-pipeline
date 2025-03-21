@@ -9,9 +9,8 @@ x-build: &default_build
     BASE_IMAGE: *default_python_image
 
 x-environment: &environment
-  CACHE_DIR: /var/local/data/cache
-  HF_HOME: ${CACHE_DIR}/huggingface
-  TORCH_HOME: ${CACHE_DIR}/torch
+  HF_HOME: /var/local/data/cache/huggingface
+  TORCH_HOME: /var/local/data/cache/torch
 
 x-secrets-environment: &secrets_environment
   HUGGINGFACEHUB_API_TOKEN: ${HUGGINGFACEHUB_API_TOKEN}
