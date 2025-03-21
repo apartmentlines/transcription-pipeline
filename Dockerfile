@@ -20,3 +20,4 @@ COPY . .
 RUN pip install --no-cache-dir -r requirements-initial.txt
 RUN pip install --no-cache-dir -e .
 RUN pip install --no-cache-dir -r requirements-adjustments.txt
+RUN seed-models --debug
