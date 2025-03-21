@@ -3,12 +3,17 @@ FROM $BASE_IMAGE
 
 WORKDIR /usr/src/transcription-pipeline
 
-RUN mkdir -p /var/local/data/cache/{huggingface,pip}
+RUN mkdir -pv /var/local/data/cache
 
-RUN apt-get update && apt-get install -y --no-install-recommends gcc python3-dev
-RUN apt-get update && apt-get install -y --no-install-recommends curl net-tools
-RUN apt-get update && apt-get install -y --no-install-recommends vim procps
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  curl \
+  ffmpeg \
+  gcc \
+  net-tools \
+  procps \
+  python3-dev \
+  tree \
+  vim
 
 RUN wget https://developer.download.nvidia.com/compute/cudnn/9.8.0/local_installers/cudnn-local-repo-debian12-9.8.0_1.0-1_amd64.deb
 RUN dpkg -i cudnn-local-repo-debian12-9.8.0_1.0-1_amd64.deb
