@@ -1,5 +1,3 @@
-version: '3'
-
 x-python-image: &default_python_image python:3.12.9-bookworm
 x-networks: &default_networks
   - transcription-pipeline-network
