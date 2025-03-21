@@ -24,9 +24,9 @@ ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
 
 COPY . .
 
-RUN pip install -r requirements-initial.txt
-RUN pip install -e .
-RUN pip install -r requirements-adjustments.txt
+RUN pip install --no-cache-dir -r requirements-initial.txt
+RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -r requirements-adjustments.txt
 # RUN seed-models --debug
 
-RUN apt cache clean
+RUN apt clean
