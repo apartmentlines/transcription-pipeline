@@ -16,6 +16,7 @@ x-secrets-environment: &secrets_environment
   TRANSCRIPTION_DOMAIN: ${TRANSCRIPTION_DOMAIN}
 
 x-command: &default_command [ "transcription-processor", "--limit", "1000", "--processing-limit", "2", "--debug" ]
+x-testing-command: &testing_command [ "sleep", "1d" ]
 
 services:
   transcription-processor:
@@ -25,6 +26,7 @@ services:
       <<:
         - *secrets_environment
     command: *default_command
+    # command: *testing_command
     networks: *default_networks
     deploy:
       resources:
