@@ -10,6 +10,9 @@ x-build: &default_build
   args:
     BASE_IMAGE: *default_python_image
 
+x-environment: &environment
+  HF_HOME: /var/local/data/cache/huggingface
+
 x-secrets-environment: &secrets_environment
   HUGGINGFACEHUB_API_TOKEN: ${HUGGINGFACEHUB_API_TOKEN}
   TRANSCRIPTION_API_KEY: ${TRANSCRIPTION_API_KEY}
@@ -24,10 +27,13 @@ services:
       <<: *default_build
     environment:
       <<:
+        - *environment
         - *secrets_environment
     command: *default_command
     # command: *testing_command
     networks: *default_networks
+    volumes:
+      - transcription-processor-data:/var/local/data
     deploy:
       resources:
         reservations:
@@ -38,3 +44,7 @@ services:
 
 networks:
   transcription-pipeline-network:
+
+volumes:
+  transcription-processor-data:
+    driver: local
