@@ -11,7 +11,6 @@ import argparse
 import logging
 import os
 import sys
-from pathlib import Path
 
 import whisperx
 
@@ -33,7 +32,6 @@ class ModelSeeder:
     the main transcription model, alignment models for supported languages,
     and optionally a diarization model.
 
-    :param cache_dir: Directory to store downloaded models
     :param whisper_model_name: Name of the WhisperX model to use
     :param languages: List of language codes to download alignment models for
     :param device: Device to use for model computation (cuda, cpu)
@@ -44,7 +42,6 @@ class ModelSeeder:
     """
     def __init__(
         self,
-        cache_dir: str,
         whisper_model_name: str = DEFAULT_WHISPER_MODEL,
         languages: list[str] = VALID_LANGUAGES,
         device: str = "cuda",
@@ -53,7 +50,6 @@ class ModelSeeder:
         download_diarization: bool = True,
         debug: bool = False,
     ) -> None:
-        self.cache_dir: Path = Path(os.path.expanduser(cache_dir))
         self.whisper_model_name: str = whisper_model_name
         self.languages: list[str] = languages
         self.device: str = device
@@ -62,23 +58,6 @@ class ModelSeeder:
         self.download_diarization: bool = download_diarization
 
         self.log: logging.Logger = Logger(self.__class__.__name__, debug=debug)
-        self._setup_cache_directory()
-
-
-    def _setup_cache_directory(self) -> None:
-        """Set up and validate the model cache directory."""
-        self.log.debug(f"Setting cache directory to {self.cache_dir}")
-        os.environ["HF_HOME"] = str(self.cache_dir)
-
-        try:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-            self.log.debug(f"Cache directory created/verified: {self.cache_dir}")
-        except PermissionError:
-            self.log.error(f"Permission denied when creating cache directory: {self.cache_dir}")
-            sys.exit(1)
-        except Exception as e:
-            self.log.error(f"Error creating cache directory: {e}")
-            sys.exit(1)
 
     def download_whisper_model(self) -> None:
         """Download and initialize the Whisper model."""
@@ -151,13 +130,6 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--cache-dir",
-        type=str,
-        default="~/.cache/huggingface",
-        help="Directory to store downloaded models: (default: %(default)s)"
-    )
-
-    parser.add_argument(
         "--whisper-model",
         type=str,
         default=DEFAULT_WHISPER_MODEL,
@@ -214,7 +186,6 @@ def main() -> int:
     args = parse_arguments()
     languages = args.languages.split(",") if args.languages else VALID_LANGUAGES
     seeder = ModelSeeder(
-        cache_dir=args.cache_dir,
         whisper_model_name=args.whisper_model,
         languages=languages,
         device=args.device,
