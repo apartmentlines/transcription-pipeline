@@ -24,3 +24,5 @@ RUN pip install -r requirements-initial.txt
 RUN pip install -e .
 RUN pip install -r requirements-adjustments.txt
 # RUN seed-models --debug
+
+RUN apt cache clean
