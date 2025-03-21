@@ -24,7 +24,6 @@ ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
 
 COPY . .
 
-RUN pip config --global set global.cache-dir "/var/local/data/cache/pip"
 RUN pip install -r requirements-initial.txt
 RUN pip install -e .
 RUN pip install -r requirements-adjustments.txt

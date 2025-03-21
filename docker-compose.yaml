@@ -10,6 +10,7 @@ x-build: &default_build
 
 x-environment: &environment
   HF_HOME: /var/local/data/cache/huggingface
+  PIP_CACHE_DIR: /var/local/data/cache/pip
 
 x-secrets-environment: &secrets_environment
   HUGGINGFACEHUB_API_TOKEN: ${HUGGINGFACEHUB_API_TOKEN}
