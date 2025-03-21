@@ -16,7 +16,7 @@ x-secrets-environment: &secrets_environment
   TRANSCRIPTION_API_KEY: ${TRANSCRIPTION_API_KEY}
   TRANSCRIPTION_DOMAIN: ${TRANSCRIPTION_DOMAIN}
 
-x-command: &default_command [ "transcription-processor", "--limit", "1000", "--processing-limit", "2", "--debug" ]
+x-command: &default_command [ "transcription-processor", "--limit", "1000", "--processing-limit", "2" ]
 x-testing-command: &testing_command [ "sleep", "1d" ]
 
 services:
