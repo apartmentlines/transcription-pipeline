@@ -4,8 +4,6 @@ FROM $BASE_IMAGE
 WORKDIR /usr/src/transcription-pipeline
 ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
 
-RUN mkdir -pv /var/local/data/cache
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
   curl \
   ffmpeg \
