@@ -3,6 +3,7 @@ FROM $BASE_IMAGE
 
 WORKDIR /usr/src/transcription-pipeline
 ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
+ENV TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6;8.7;8.9;9.0;9.0a"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
   curl \
@@ -29,4 +30,4 @@ COPY . .
 RUN pip install --no-cache-dir -r requirements-initial.txt && \
   pip install --no-cache-dir -e . && \
   pip install --no-cache-dir -r requirements-adjustments.txt
-# RUN seed-models --debug
+RUN seed-models --debug
