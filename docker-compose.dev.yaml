@@ -1,6 +1,6 @@
 x-shared-volumes: &shared-volumes
   - .:/usr/src/transcription-pipeline
-  - transcription-processor-data:/var/local/data
+  # - transcription-processor-data:/var/local/data
 
 services:
   transcription-processor:
