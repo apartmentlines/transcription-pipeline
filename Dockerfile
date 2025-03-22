@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   curl \
   ffmpeg \
   gcc \
+  git \
   net-tools \
   procps \
   python3-dev \
