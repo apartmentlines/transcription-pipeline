@@ -8,11 +8,9 @@ x-build: &default_build
   args:
     BASE_IMAGE: *default_python_image
 
-x-environment: &environment
+# x-environment: &environment
 #   HF_HOME: /var/local/data/cache/huggingface
 #   TORCH_HOME: /var/local/data/cache/torch
-    NVIDIA_VISIBLE_DEVICES: all
-    NVIDIA_DRIVER_CAPABILITIES: compute,utility
 
 x-secrets-environment: &secrets_environment
   # HUGGINGFACEHUB_API_TOKEN: ${HUGGINGFACEHUB_API_TOKEN}
@@ -28,14 +26,13 @@ services:
       <<: *default_build
     environment:
       <<:
-        - *environment
+        # - *environment
         - *secrets_environment
     command: *default_command
     # command: *testing_command
     # networks: *default_networks
     # volumes:
     #   - transcription-processor-data:/var/local/data
-    runtime: nvidia
     deploy:
       resources:
         reservations:
