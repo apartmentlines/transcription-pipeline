@@ -1,0 +1,3 @@
+services:
+  transcription-processor:
+    command: [ "seed-models", "--debug" ]
