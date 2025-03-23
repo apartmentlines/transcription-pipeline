@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   gcc \
   git \
   net-tools \
+  openssh-server \
   procps \
   python3-dev \
   tree \
