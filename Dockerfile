@@ -1,4 +1,5 @@
 ARG BASE_IMAGE
+ARG RUNPODCTL_VERSION
 FROM $BASE_IMAGE
 
 WORKDIR /usr/src/transcription-pipeline
@@ -24,6 +25,9 @@ RUN curl -o cudnn.deb https://developer.download.nvidia.com/compute/cudnn/9.8.0/
   rm -rv /var/cudnn-local-repo-debian12-9.8.0
 
 RUN apt clean
+
+RUN curl -L -o /usr/local/bin/runpodctl https://github.com/runpod/runpodctl/releases/download/${RUNPODCTL_VERSION}/runpodctl-linux-amd64 && \
+  chmod 755 /usr/local/bin/runpodctl
 
 COPY . .
 
