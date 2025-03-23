@@ -29,8 +29,3 @@ RUN curl -L -o /usr/local/bin/runpodctl https://github.com/runpod/runpodctl/rele
   chmod 755 /usr/local/bin/runpodctl
 
 COPY . .
-
-RUN pip install --no-cache-dir -r requirements-initial.txt && \
-  pip install --no-cache-dir -e . && \
-  pip install --no-cache-dir -r requirements-adjustments.txt
-# RUN seed-models --debug

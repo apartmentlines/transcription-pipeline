@@ -1,6 +1,9 @@
 x-python-image: &default_python_image python:3.12.9-slim-bookworm
 # x-networks: &default_networks
 #   - transcription-pipeline-network
+x-shared-volumes: &shared-volumes
+  - .:/usr/src/transcription-pipeline
+  - transcription-processor-data:/var/local/data
 
 x-build: &default_build
   context: .
@@ -29,8 +32,7 @@ services:
         - *secrets_environment
     command: *default_command
     # networks: *default_networks
-    # volumes:
-    #   - transcription-processor-data:/var/local/data
+    volumes: *shared-volumes
     deploy:
       resources:
         reservations:
@@ -42,6 +44,6 @@ services:
 # networks:
 #   transcription-pipeline-network:
 #
-# volumes:
-#   transcription-processor-data:
-#     driver: local
+volumes:
+  transcription-processor-data:
+    driver: local
