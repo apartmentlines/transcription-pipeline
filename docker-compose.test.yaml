@@ -1,0 +1,7 @@
+x-shared-volumes: &shared-volumes
+  - .:/usr/src/transcription-pipeline
+  # - transcription-processor-data:/var/local/data
+
+services:
+  transcription-processor:
+    command: [ "sleep", "1d" ]
