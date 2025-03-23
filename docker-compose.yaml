@@ -1,5 +1,4 @@
 x-python-image: &default_python_image python:3.12.9-slim-bookworm
-x-runpodctl-version: &default_runpodctl_version v1.14.4
 # x-networks: &default_networks
 #   - transcription-pipeline-network
 
@@ -8,7 +7,6 @@ x-build: &default_build
   dockerfile: Dockerfile
   args:
     BASE_IMAGE: *default_python_image
-    RUNPODCTL_VERSION: *default_runpodctl_version
 
 # x-environment: &environment
 #   HF_HOME: /var/local/data/cache/huggingface
