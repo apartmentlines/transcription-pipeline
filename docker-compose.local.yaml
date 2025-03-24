@@ -1,1 +1,49 @@
 x-python-image: &default_python_image apartmentlinesproduction/transcription-pipeline:v0.1.0
+# x-networks: &default_networks
+#   - transcription-pipeline-network
+x-shared-volumes: &shared-volumes
+  - .:/usr/src/transcription-pipeline
+  - transcription-processor-data:/var/local/data
+
+x-build: &default_build
+  context: .
+  dockerfile: Dockerfile
+  args:
+    BASE_IMAGE: *default_python_image
+
+# x-environment: &environment
+#   HF_HOME: /var/local/data/cache/huggingface
+#   TORCH_HOME: /var/local/data/cache/torch
+
+x-secrets-environment: &secrets_environment
+  # HUGGINGFACEHUB_API_TOKEN: ${HUGGINGFACEHUB_API_TOKEN}
+  TRANSCRIPTION_API_KEY: ${TRANSCRIPTION_API_KEY}
+  TRANSCRIPTION_DOMAIN: ${TRANSCRIPTION_DOMAIN}
+
+x-command: &default_command [ "transcription-processor", "--limit", "1000", "--processing-limit", "2" ]
+
+services:
+  transcription-processor:
+    build:
+      <<: *default_build
+    environment:
+      <<:
+        # - *environment
+        - *secrets_environment
+    command: *default_command
+    # networks: *default_networks
+    volumes: *shared-volumes
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+# networks:
+#   transcription-pipeline-network:
+#
+volumes:
+  transcription-processor-data:
+    driver: local
