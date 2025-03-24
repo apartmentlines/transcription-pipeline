@@ -1,0 +1,1 @@
+x-python-image: &default_python_image apartmentlinesproduction/transcription-pipeline:v0.1.0
