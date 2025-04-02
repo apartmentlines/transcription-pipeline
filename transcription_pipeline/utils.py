@@ -42,7 +42,7 @@ def get_request(url: str, params: dict) -> requests.Response:
     stop=stop_after_attempt(DEFAULT_RETRY_ATTEMPTS),
     wait=wait_exponential(multiplier=DEFAULT_RETRY_BACKOFF),
 )
-def post_request(url: str, data: dict) -> requests.Response:
+def post_request(url: str, data: dict[str, str]) -> requests.Response:
     response = requests.post(url, data=data, timeout=DOWNLOAD_TIMEOUT)
     response.raise_for_status()
     return response
