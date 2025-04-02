@@ -17,11 +17,12 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
+    "download-pipeline-processor @ git+https://github.com/apartmentlines/download-pipeline-processor.git@v0.1.0",
+    "flask",
+    "numpy",
     "requests",
     "tenacity",
-    "download-pipeline-processor @ git+https://github.com/apartmentlines/download-pipeline-processor.git@v0.1.0",
     "torch",
-    "numpy",
     "whisperx",
 ]
 
@@ -30,6 +31,7 @@ audio-file-validator = "transcription_pipeline.audio_file_validator:main"
 transcription-processor = "transcription_pipeline.main:main"
 transcriber = "transcription_pipeline.transcriber:main"
 seed-models = "transcription_pipeline.seed_models:main"
+rest-interface = "transcription_pipeline.rest_interface:main"
 
 [project.optional-dependencies]
 dev = [
