@@ -7,7 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Optional, Union, Dict, Any, Tuple, TYPE_CHECKING
 from whisperx.utils import get_writer
-from download_pipeline_processor.logger import (  # pyright: ignore[reportMissingImports]
+from download_pipeline_processor.logger import (
     Logger,
 )
 from .constants import (

@@ -25,7 +25,7 @@ ctranslate2==4.4.0
 cycler==0.12.1
 distlib==0.3.9
 docopt==0.6.2
-download-pipeline-processor @ git+https://github.com/apartmentlines/download-pipeline-processor.git@v0.1.0
+download-pipeline-processor @ git+https://github.com/apartmentlines/download-pipeline-processor.git@v0.1.1
 dulwich==0.22.8
 einops==0.8.1
 faster-whisper==1.1.0

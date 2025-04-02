@@ -4,8 +4,10 @@ This interface accepts a single request to trigger the pipeline and then
 signals completion before the process exits. Designed for one-shot container execution.
 """
 
+import os
 import argparse
 import sys
+import tempfile
 import logging
 import threading
 from pathlib import Path
@@ -40,13 +42,30 @@ class TranscriptionRestInterface:
     def __init__(self, debug: bool = False) -> None:
         """Initialize the REST interface components and state."""
         self.debug: bool = debug
+        self.setup_logging()
         self.app: Flask = Flask(__name__)
-        self.log: logging.Logger = Logger("TranscriptionRESTInterface", debug=self.debug)
         self._lock: threading.Lock = threading.Lock()
         self._pipeline_started: bool = False
         self._pipeline_completion_event: threading.Event = threading.Event()
         self._pipeline_exit_code: int = DEFAULT_REST_FAILURE_EXIT_CODE
+        self._set_api_key()
         self._register_routes()
+
+    def setup_logging(self) -> None:
+        """Set up logging for the interface.
+        """
+        self.log: logging.Logger = Logger("TranscriptionRESTInterface", debug=self.debug)
+        # Set up logging to a temporary file for the pipeline.
+        log_file = tempfile.NamedTemporaryFile(
+            prefix="transcription_rest_interface_",
+            suffix=".log",
+            delete=False,
+            mode="w"
+        )
+        self.log_file_path: str = log_file.name
+        log_file.close()
+        os.environ["DOWNLOAD_PIPELINE_PROCESSOR_LOG_FILE"] = self.log_file_path
+        self.log.info(f"Logging transcription operations to temporary file: {self.log_file_path}")
 
     def _register_routes(self) -> None:
         """Register Flask URL rules."""
@@ -114,6 +133,8 @@ class TranscriptionRestInterface:
             self.log.info("Debug logging enabled via API request.")
         if not api_key or not domain:
             raise ValueError("api_key and domain are required parameters.")
+        if not self._validate_api_key(api_key):
+            raise ValueError("Invalid API key.")
 
         kwargs: dict[str, Any] = {
             "api_key": api_key,
@@ -241,11 +262,48 @@ class TranscriptionRestInterface:
                 payload: dict[str, str] = {"status": "success" if task_success else "error"}
                 if error_message:
                     payload["message"] = error_message
+                else:
+                    logs: str = self.fetch_pipeline_logs()
+                    payload["message"] = logs
+                    if self.debug:
+                        self.log.debug(f"Pipeline logs: {logs}")
+                        print(logs)
                 self._send_callback(cb_url, payload)
             self.log.debug("Signaling pipeline completion event.")
             self._pipeline_completion_event.set()
 
-    def run_server(self, host: str, port: int) -> None:
+    def _set_api_key(self, api_key: str | None = None) -> None:
+        """Set the API key for the REST interface.
+
+        :param api_key: The API key to set.
+        :type api_key: str | None
+        """
+        self.api_key: str | None = api_key
+
+    def _validate_api_key(self, api_key: str) -> bool:
+        """Validate the API key against the key for the REST interface.
+
+        :param api_key: The API key to validate.
+        :type api_key: str
+        """
+        return self.api_key is None or self.api_key == api_key
+
+    def fetch_pipeline_logs(self) -> str:
+        """Fetch the contents of the pipeline log file.
+
+        :return: The contents of the log file as a string, or an error message if the file cannot be read.
+        :rtype: str
+        """
+        try:
+            with open(self.log_file_path, 'r') as log_file:
+                log_contents = log_file.read()
+            return log_contents if log_contents else "Log file is empty."
+        except Exception as e:
+            error_message = f"Error reading log file: {str(e)}"
+            self.log.error(error_message, exc_info=self.debug)
+            return error_message
+
+    def run_server(self, host: str, port: int, api_key: str | None) -> None:
         """Run the Flask development server and wait for pipeline completion.
 
         :param host: Host to bind the server to.
@@ -253,6 +311,7 @@ class TranscriptionRestInterface:
         :param port: Port to bind the server to.
         :type port: int
         """
+        self._set_api_key(api_key)
         flask_kwargs: dict[str, Any] = {
             "host": host,
             "port": port,
@@ -285,6 +344,11 @@ def parse_arguments() -> argparse.Namespace:
         "--port", type=int, default=DEFAULT_REST_PORT, help="Port to bind the server to, default: %(default)s"
     )
     parser.add_argument(
+        "--api-key",
+        type=str,
+        help="API key used to validate requests (also can be provided as TRANSCRIPTION_API_KEY environment variable)",
+    )
+    parser.add_argument(
         "--debug", action="store_true", help="Enable Flask debug mode and verbose logging."
     )
     return parser.parse_args()
@@ -293,8 +357,9 @@ def parse_arguments() -> argparse.Namespace:
 def main() -> None:
     """Parse arguments, initialize the interface, and run the server."""
     args: argparse.Namespace = parse_arguments()
+    api_key: str | None = args.api_key or os.environ.get("TRANSCRIPTION_API_KEY")
     interface: TranscriptionRestInterface = TranscriptionRestInterface(debug=args.debug)
-    interface.run_server(host=args.host, port=args.port)
+    interface.run_server(host=args.host, port=args.port, api_key=api_key)
 
 
 if __name__ == "__main__":

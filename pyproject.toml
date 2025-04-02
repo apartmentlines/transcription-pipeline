@@ -17,7 +17,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "download-pipeline-processor @ git+https://github.com/apartmentlines/download-pipeline-processor.git@v0.1.0",
+    "download-pipeline-processor @ git+https://github.com/apartmentlines/download-pipeline-processor.git@v0.1.1",
     "flask",
     "numpy",
     "requests",
