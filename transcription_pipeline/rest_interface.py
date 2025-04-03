@@ -48,7 +48,7 @@ class TranscriptionRestInterface:
         self._pipeline_started: bool = False
         self._pipeline_completion_event: threading.Event = threading.Event()
         self._pipeline_exit_code: int = DEFAULT_REST_FAILURE_EXIT_CODE
-        self.pipeline_log_file_path: str | None = None
+        self.pipeline_log_file_path: str = ""
         self._set_api_key()
         self._register_routes()
 
@@ -296,7 +296,7 @@ class TranscriptionRestInterface:
         :rtype: str
         """
         try:
-            with open(self.log_file_path, 'r') as log_file:
+            with open(self.pipeline_log_file_path, 'r') as log_file:
                 log_contents = log_file.read()
             return log_contents if log_contents else "Log file is empty."
         except Exception as e:
