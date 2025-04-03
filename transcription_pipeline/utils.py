@@ -2,6 +2,7 @@ import argparse
 import sys
 import logging
 import requests
+from typing import Any
 from tenacity import retry, stop_after_attempt, wait_exponential
 from transcription_pipeline.constants import (
     DEFAULT_RETRY_ATTEMPTS,
@@ -42,7 +43,14 @@ def get_request(url: str, params: dict) -> requests.Response:
     stop=stop_after_attempt(DEFAULT_RETRY_ATTEMPTS),
     wait=wait_exponential(multiplier=DEFAULT_RETRY_BACKOFF),
 )
-def post_request(url: str, data: dict[str, str]) -> requests.Response:
-    response = requests.post(url, data=data, timeout=DOWNLOAD_TIMEOUT)
+def post_request(url: str, data: dict[str, str], json: bool = False) -> requests.Response:
+    kwargs: dict[str, Any] = {
+        "timeout": DOWNLOAD_TIMEOUT,
+    }
+    if json:
+        kwargs["json"] = data
+    else:
+        kwargs["data"] = data
+    response = requests.post(url, **kwargs)
     response.raise_for_status()
     return response

@@ -87,7 +87,7 @@ class TranscriptionRestInterface:
         """
         try:
             self.log.info(f"Sending callback to {url} with payload: {payload}")
-            response: requests.Response = utils.post_request(url, payload)
+            response: requests.Response = utils.post_request(url, payload, True)
             self.log.info(f"Callback to {url} successful (Status: {response.status_code})")
         except requests.exceptions.RequestException as e:
             self.log.error(f"Failed to send callback to {url}: {e}", exc_info=self.debug)
