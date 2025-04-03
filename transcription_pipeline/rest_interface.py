@@ -267,7 +267,7 @@ class TranscriptionRestInterface:
                     logs: str = self.fetch_pipeline_logs()
                     payload["message"] = logs
                     if self.debug:
-                        self.log.debug(f"Pipeline logs: {logs}")
+                        self.log.debug("Pipeline logs")
                         print(logs)
                 self._send_callback(cb_url, payload)
             self.log.debug("Signaling pipeline completion event.")
