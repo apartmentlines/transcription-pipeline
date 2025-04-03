@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
 setup_ssh() {
   local ssh_dir="${HOME}/.ssh"
   mkdir -pv "${ssh_dir}" && \
@@ -7,6 +9,10 @@ setup_ssh() {
     echo "${PUBLIC_KEY}" > "${ssh_dir}/authorized_keys" && \
     chmod -v 600 "${ssh_dir}/authorized_keys" && \
     service ssh start
+  if [ -f "${SCRIPT_DIR}/authorized_keys" ]; then
+    echo "${SCRIPT_DIR}/authorized_keys file found, overriding existing authorized_keys file..."
+    cat "${SCRIPT_DIR}/authorized_keys" > "${ssh_dir}/authorized_keys"
+  fi
 }
 
 run_service() {
