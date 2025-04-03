@@ -10,6 +10,8 @@ import sys
 import tempfile
 import logging
 import threading
+import subprocess
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -355,6 +357,12 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def stop_pod():
+    pod_id = os.environ.get("RUNPOD_POD_ID")
+    if pod_id:
+        subprocess.run(["runpodctl", "stop", "pod", pod_id])
+
+
 def main() -> None:
     """Parse arguments, initialize the interface, and run the server."""
     args: argparse.Namespace = parse_arguments()
@@ -364,4 +372,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(traceback.format_exc())
+    finally:
+        stop_pod()
