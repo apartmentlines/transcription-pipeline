@@ -42,19 +42,19 @@ class TranscriptionRestInterface:
     def __init__(self, debug: bool = False) -> None:
         """Initialize the REST interface components and state."""
         self.debug: bool = debug
-        self.setup_logging()
+        self.log: logging.Logger = Logger("TranscriptionRESTInterface", debug=self.debug)
         self.app: Flask = Flask(__name__)
         self._lock: threading.Lock = threading.Lock()
         self._pipeline_started: bool = False
         self._pipeline_completion_event: threading.Event = threading.Event()
         self._pipeline_exit_code: int = DEFAULT_REST_FAILURE_EXIT_CODE
+        self.pipeline_log_file_path: str | None = None
         self._set_api_key()
         self._register_routes()
 
-    def setup_logging(self) -> None:
-        """Set up logging for the interface.
+    def setup_pipeline_logging(self) -> None:
+        """Set up file logging for the pioeline.
         """
-        self.log: logging.Logger = Logger("TranscriptionRESTInterface", debug=self.debug)
         # Set up logging to a temporary file for the pipeline.
         log_file = tempfile.NamedTemporaryFile(
             prefix="transcription_rest_interface_",
@@ -62,10 +62,10 @@ class TranscriptionRestInterface:
             delete=False,
             mode="w"
         )
-        self.log_file_path: str = log_file.name
+        self.pipeline_log_file_path = log_file.name
         log_file.close()
-        os.environ["DOWNLOAD_PIPELINE_PROCESSOR_LOG_FILE"] = self.log_file_path
-        self.log.info(f"Logging transcription operations to temporary file: {self.log_file_path}")
+        os.environ["DOWNLOAD_PIPELINE_PROCESSOR_LOG_FILE"] = self.pipeline_log_file_path
+        self.log.info(f"Logging transcription operations to temporary file: {self.pipeline_log_file_path}")
 
     def _register_routes(self) -> None:
         """Register Flask URL rules."""
@@ -246,6 +246,7 @@ class TranscriptionRestInterface:
         error_message: str = ""
         try:
             self.log.info("Instantiating and starting pipeline run in background thread...")
+            self.setup_pipeline_logging()
             pipeline: TranscriptionPipeline = TranscriptionPipeline(**pipeline_kwargs)
             pipeline.run()
             self.log.info("Pipeline run finished successfully in background thread.")
