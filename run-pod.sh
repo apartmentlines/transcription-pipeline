@@ -1,15 +1,31 @@
 #!/usr/bin/env bash
 
-# limit=${1}
-# processing_limit=${2}
-ssh_dir="${HOME}/.ssh"
+setup_ssh() {
+  local ssh_dir="${HOME}/.ssh"
+  mkdir -pv "${ssh_dir}" && \
+    chmod -v 700 "${ssh_dir}" && \
+    echo "${PUBLIC_KEY}" > "${ssh_dir}/authorized_keys" && \
+    chmod -v 600 "${ssh_dir}/authorized_keys" && \
+    service ssh start
+}
 
-mkdir -p "${ssh_dir}" && \
-  chmod 700 "${ssh_dir}" && \
-  echo "${PUBLIC_KEY}" > "${ssh_dir}/authorized_keys" && \
-  chmod 600 "${ssh_dir}/authorized_keys" && \
-  service ssh start
+run_service() {
+  echo "Running REST interface for transcription processor..."
+  rest-interface "$@"
+}
 
-# transcription-processor --limit "${limit}" --processing-limit "${processing_limit}"
-sleep 1h
-runpodctl stop pod "${RUNPOD_POD_ID}"
+stop_pod() {
+  if [ -f "/tmp/abort-pod-stop" ]; then
+    echo "Aborting pod stop..."
+    return
+  fi
+  if [ -n "${RUNPOD_POD_ID}" ]; then
+    echo "Stopping pod ${RUNPOD_POD_ID}..."
+    runpodctl stop pod "${RUNPOD_POD_ID}"
+  fi
+}
+
+trap stop_pod EXIT SIGINT SIGTERM ERR
+
+setup_ssh
+run_service "$@"
