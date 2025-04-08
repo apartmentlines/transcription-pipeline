@@ -39,4 +39,5 @@ dev = [
     "black",
     "flake8",
     "pyright",
+    "types-Flask",
 ]

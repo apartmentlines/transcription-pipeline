@@ -12,7 +12,7 @@ import logging
 import threading
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import requests
 from flask import Flask, request, jsonify, Response
@@ -70,8 +70,11 @@ class TranscriptionRestInterface:
             debug=self.debug
         )
 
+        def run_flask_app() -> None:
+            app.run(host=host, port=port, debug=self.debug, use_reloader=False)
+
         flask_thread: threading.Thread = threading.Thread(
-            target=lambda: app.run(host=host, port=port, debug=self.debug, use_reloader=False),
+            target=run_flask_app,
             daemon=True
         )
         flask_thread.start()
@@ -236,20 +239,19 @@ class PipelineLifecycleManager:
     """
     def __init__(
         self,
-        callback_notifier: callable, # Use 'callable' for type hint
+        callback_notifier: Callable[[str, dict[str, Any], logging.Logger, bool], None],
         logger: logging.Logger,
         debug: bool = False
     ) -> None:
         """Initialize the pipeline lifecycle manager."""
-        self.callback_notifier: callable = callback_notifier
+        self.callback_notifier: Callable[[str, dict[str, Any], logging.Logger, bool], None] = callback_notifier
         self.log: logging.Logger = logger
         self.debug: bool = debug
-
         self._lock: threading.Lock = threading.Lock()
         self._pipeline_started: bool = False
-        self._pipeline_completed: bool = False # Track completion separately
+        self._pipeline_completed: bool = False
         self._pipeline_completion_event: threading.Event = threading.Event()
-        self._pipeline_exit_code: int = DEFAULT_REST_FAILURE_EXIT_CODE # Default failure
+        self._pipeline_exit_code: int = DEFAULT_REST_FAILURE_EXIT_CODE
         self.pipeline_log_file_path: str | None = None
 
     def is_running(self) -> bool:
@@ -494,14 +496,14 @@ def create_app(
     app.config["DEBUG"] = debug # Set Flask debug mode if requested
 
     @app.route("/status", methods=["GET"])
-    def status() -> tuple[Response, int]:
+    def status() -> tuple[Response, int]:  # pyright: ignore[reportUnusedFunction]
         """Endpoint to check the status of the pipeline manager."""
         logger.debug("Status endpoint called")
         current_status: dict[str, Any] = pipeline_manager.get_status()
         return jsonify(current_status), 200
 
     @app.route("/run", methods=["POST"])
-    def run_pipeline() -> tuple[Response, int]:
+    def run_pipeline() -> tuple[Response, int]:  # pyright: ignore[reportUnusedFunction]
         """Endpoint to trigger the transcription pipeline execution."""
         logger.info("Run endpoint called")
 
@@ -570,5 +572,5 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
+    except Exception:
         print(traceback.format_exc())
