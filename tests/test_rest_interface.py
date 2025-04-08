@@ -736,7 +736,7 @@ def test_create_app_run_endpoint_success(client, mock_manager: MagicMock, mock_v
     response = client.post("/run", json=request_data)
 
     assert response.status_code == 202
-    assert response.json == {"message": "Transcription pipeline accepted for processing."}
+    assert response.json == {"success": True, "message": "Transcription pipeline accepted for processing."}
     mock_validator.validate.assert_called_once_with(request_data, "server_key")
     mock_manager.start_pipeline.assert_called_once_with(validated_kwargs, callback_url)
 
@@ -744,7 +744,7 @@ def test_create_app_run_endpoint_not_json(client, mock_manager: MagicMock, mock_
     """Test the /run endpoint when the request is not JSON."""
     response = client.post("/run", data="not json")
     assert response.status_code == 400
-    assert response.json == {"error": "Request must be JSON"}
+    assert response.json == {"success": False, "message": "Request must be JSON"}
     mock_validator.validate.assert_not_called()
     mock_manager.start_pipeline.assert_not_called()
 
@@ -757,7 +757,7 @@ def test_create_app_run_endpoint_validation_error(client, mock_manager: MagicMoc
     response = client.post("/run", json=request_data)
 
     assert response.status_code == 400
-    assert response.json == {"error": error_message}
+    assert response.json == {"success": False, "message": error_message}
     mock_validator.validate.assert_called_once_with(request_data, "server_key")
     mock_manager.start_pipeline.assert_not_called()
 
@@ -772,7 +772,7 @@ def test_create_app_run_endpoint_already_running(client, mock_manager: MagicMock
     response = client.post("/run", json=request_data)
 
     assert response.status_code == 409
-    assert response.json == {"error": "Pipeline run has already been triggered or failed to start."}
+    assert response.json == {"success": False, "message": "Pipeline run has already been triggered or failed to start."}
     mock_validator.validate.assert_called_once_with(request_data, "server_key")
     mock_manager.start_pipeline.assert_called_once_with(validated_kwargs, callback_url)
 
@@ -785,8 +785,9 @@ def test_create_app_run_endpoint_unexpected_error(client, mock_manager: MagicMoc
     response = client.post("/run", json=request_data)
 
     assert response.status_code == 500
-    assert "error" in response.json
-    assert error_message in response.json["error"]
+    assert response.json.get("success") is False
+    assert "message" in response.json
+    assert error_message in response.json["message"]
     mock_validator.validate.assert_called_once_with(request_data, "server_key")
     mock_manager.start_pipeline.assert_not_called()
 

@@ -10,7 +10,6 @@ import sys
 import tempfile
 import logging
 import threading
-import subprocess
 import traceback
 from pathlib import Path
 from typing import Any
@@ -508,12 +507,12 @@ def create_app(
 
         if not request.is_json:
             logger.error("Request is not JSON")
-            return jsonify({"error": "Request must be JSON"}), 400
+            return jsonify({"success": False, "message": "Request must be JSON"}), 400
 
         data: dict[str, Any] | None = request.get_json()
         if data is None:
             logger.error("Failed to get JSON data from request")
-            return jsonify({"error": "Failed to parse JSON data"}), 400
+            return jsonify({"success": False, "message": "Failed to parse JSON data"}), 400
 
         logger.debug(f"Received run request: {data}")
 
@@ -522,17 +521,17 @@ def create_app(
             started: bool = pipeline_manager.start_pipeline(pipeline_kwargs, callback_url)
             if started:
                 logger.info("Pipeline accepted for processing.")
-                return jsonify({"message": "Transcription pipeline accepted for processing."}), 202
+                return jsonify({"success": True, "message": "Transcription pipeline accepted for processing."}), 202
             else:
                 logger.warning("Pipeline start requested, but manager reported it's already running or failed to start.")
-                return jsonify({"error": "Pipeline run has already been triggered or failed to start."}), 409
+                return jsonify({"success": False, "message": "Pipeline run has already been triggered or failed to start."}), 409
         except ValueError as ve:
             logger.error(f"Validation error processing run request: {ve}")
-            return jsonify({"error": str(ve)}), 400
+            return jsonify({"success": False, "message": str(ve)}), 400
         except Exception as e:
             message: str = f"An unexpected error occurred processing the run request: {e}"
             logger.error(message, exc_info=debug)
-            return jsonify({"error": message}), 500
+            return jsonify({"success": False, "message": message}), 500
     return app
 
 
