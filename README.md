@@ -32,7 +32,7 @@ pip install -e ".[dev]"
 
 Can be run as a command-line script or integrated into other Python applications.
 
-Run `seed-models` before first use; Docker image setup already does this. Runtime loading of Whisper and Hugging Face alignment models uses only cached files and fails if the required files are missing.
+Run `seed-models` before first use; Docker builds already do this. Runtime loading of Whisper and Hugging Face alignment models uses only cached files and fails if the required files are missing.
 
 #### Command-Line Usage
 
@@ -63,12 +63,16 @@ You can set the following environment variables instead of providing command-lin
 
 Run from the repo root with `TRANSCRIPTION_API_KEY` and `TRANSCRIPTION_DOMAIN` set in your shell or `.env`. Local execution requires Docker GPU support for an NVIDIA GPU.
 
-Build the base image, run container setup, then commit and push the configured image to `apartmentlinesproduction/transcription-pipeline:v0.1.0` (requires repository push access):
+Build and push the prepared image to `apartmentlinesproduction/transcription-pipeline:v0.1.0` (requires repository push access):
 
 ```bash
 docker login
 ./dockerhub-build.sh
 ```
+
+The multi-stage build installs runtime dependencies and seeds Whisper, English/Spanish alignment models and NLTK tokenizer data on CPU; building requires no GPU. Dependencies and model data are cached independently of application code. The final image includes the model data, SSH and `runpodctl`, but excludes compiler and test tooling. Optional speaker-diarization weights are not seeded.
+
+For a local build without publishing, run `./setup.sh` (or `docker compose build`), then `docker compose up`. No setup container or `docker commit` is needed. Pip downloads use a BuildKit cache.
 
 Run the prepared image locally:
 
@@ -93,5 +97,13 @@ docker compose -f docker-compose.local.yaml \
 ### Running Tests
 
 ```bash
-pytest tests/
+pip install -r requirements-frozen.txt -r requirements-dev.txt
+pytest
+```
+
+To test inside Docker with the development target:
+
+```bash
+./test.sh build
+./test.sh run --rm transcription-processor pytest
 ```

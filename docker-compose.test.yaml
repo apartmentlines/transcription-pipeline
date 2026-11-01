@@ -1,3 +1,5 @@
 services:
   transcription-processor:
+    build:
+      target: development
     command: [ "sleep", "1d" ]

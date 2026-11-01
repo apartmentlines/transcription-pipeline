@@ -8,6 +8,7 @@ x-shared-volumes: &shared-volumes
 x-build: &default_build
   context: .
   dockerfile: Dockerfile
+  target: runtime
   args:
     BASE_IMAGE: *default_python_image
 

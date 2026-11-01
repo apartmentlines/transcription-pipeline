@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 
-base_command="docker compose -f docker-compose.yaml -f docker-compose.setup.yaml"
+set -euo pipefail
 
-if [ $# -eq 0 ]; then
-  ${base_command} up
-else
-  ${base_command} "$@"
-fi
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+readonly SCRIPT_DIR
+
+main() {
+  printf 'Building the prepared local transcription image\n'
+  docker compose --project-directory "${SCRIPT_DIR}" -f "${SCRIPT_DIR}/docker-compose.yaml" build "$@"
+}
+
+main "$@"
