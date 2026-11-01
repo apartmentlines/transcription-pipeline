@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
+"""Transcribe audio using models prepared in the local cache."""
+
+from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 from copy import deepcopy
 from pathlib import Path
-from typing import Optional, Union, Dict, Any, Tuple, TYPE_CHECKING
+from types import ModuleType
+from typing import Any, ClassVar, TYPE_CHECKING
 from whisperx.utils import get_writer
 from download_pipeline_processor.logger import (
     Logger,
@@ -26,7 +31,7 @@ if TYPE_CHECKING:
     import torch  # noqa : F401
 
 
-def _import_dependencies():
+def _import_dependencies() -> tuple[ModuleType, ModuleType, ModuleType]:
     """Lazily import heavy dependencies only when needed."""
     global np, whisperx, torch
     import numpy as np
@@ -39,10 +44,10 @@ def _import_dependencies():
 class TranscriptionError(Exception):
     """Custom exception for errors that occur during transcription."""
 
-    TRANSIENT_ERROR_PHRASES = ["CUDA failed", "cuBLAS failed"]
+    TRANSIENT_ERROR_PHRASES: ClassVar[list[str]] = ["CUDA failed", "cuBLAS failed"]
 
-    def __init__(self, exception):
-        self.original_error = str(exception)
+    def __init__(self, exception: Exception | str) -> None:
+        self.original_error: str = str(exception)
         super().__init__(f"Transcription error: {self.original_error}")
 
     def is_transient_error(self) -> bool:
@@ -70,44 +75,49 @@ class Transcriber:
     def __init__(
         self,
         whisper_model_name: str = DEFAULT_WHISPER_MODEL,
-        diarization_model_name: Optional[str] = None,
+        diarization_model_name: str | None = None,
         debug: bool = False,
         whisperx_module: Any = None,
-        device: Optional[str] = None,
-        compute_type: Optional[str] = None,
-        auth_token: Optional[str] = None,
-    ):
-        self.log = Logger(self.__class__.__name__, debug=debug)
+        device: str | None = None,
+        compute_type: str | None = None,
+        auth_token: str | None = None,
+    ) -> None:
+        self.log: logging.Logger = Logger(self.__class__.__name__, debug=debug)
 
+        self.whisperx: Any
         if whisperx_module is None:
             _, self.whisperx, torch = _import_dependencies()  # noqa : F401
         else:
             self.whisperx = whisperx_module
             _, _, torch = _import_dependencies()
 
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.compute_type = compute_type or (
+        self.device: str = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.compute_type: str = compute_type or (
             "float16" if torch.cuda.is_available() else "int8"
         )
-        self.whisper_model_name = whisper_model_name
-        self.diarization_model_name = diarization_model_name
-        self.auth_token = auth_token or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
+        self.whisper_model_name: str = whisper_model_name
+        self.diarization_model_name: str | None = diarization_model_name
+        self.auth_token: str | None = auth_token or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
         self._initialize_whisper_model()
-        self.alignment_models = {}
+        self.alignment_models: dict[str, tuple[Any, dict[str, Any]]] = {}
         self._initialize_diarization_model()
 
     def _initialize_whisper_model(self) -> None:
-        """Initialize the WhisperX model for transcription.
+        """Initialize WhisperX from the prepared local cache.
 
-        Loads the specified WhisperX model using the configured device and compute type.
-        Sets up the model for subsequent transcription operations.
+        Cache-only resolution avoids Hub requests and shared download progress
+        state during concurrent worker initialization. Missing model files must
+        be installed by the model seeder before running transcription.
         """
         self.log.debug(
             f"Initializing with device={self.device}, compute_type={self.compute_type}"
         )
         self.log.info(f"Loading WhisperX model: {self.whisper_model_name}")
-        self.model = self.whisperx.load_model(
-            self.whisper_model_name, self.device, compute_type=self.compute_type
+        self.model: Any = self.whisperx.load_model(
+            self.whisper_model_name,
+            self.device,
+            compute_type=self.compute_type,
+            local_files_only=True,
         )
         self.log.debug("WhisperX model loaded successfully")
 
@@ -119,7 +129,7 @@ class Transcriber:
         """
         if self.diarization_model_name:
             self.log.info(f"Loading diarization model: {self.diarization_model_name}")
-            self.diarization_model = self.whisperx.DiarizationPipeline(
+            self.diarization_model: Any = self.whisperx.DiarizationPipeline(
                 model_name=self.diarization_model_name,
                 use_auth_token=self.auth_token,
                 device=self.device,
@@ -129,7 +139,7 @@ class Transcriber:
             self.log.info("No diarization model provided, skipped loading")
             self.diarization_model = None
 
-    def _validate_input_file(self, input_file: Union[str, Path]) -> Path:
+    def _validate_input_file(self, input_file: str | Path) -> Path:
         """Validate that the input file exists and is accessible.
 
         :param input_file: Path to the audio file
@@ -142,7 +152,7 @@ class Transcriber:
             raise FileNotFoundError(f"Input file not found: {path}")
         return path
 
-    def _load_audio(self, input_file: Union[str, Path]) -> "np.ndarray":
+    def _load_audio(self, input_file: str | Path) -> np.ndarray[Any, np.dtype[Any]]:
         """Load audio file into memory using WhisperX.
 
         :param input_file: Path to the audio file
@@ -157,8 +167,8 @@ class Transcriber:
             raise TranscriptionError(e) from e
 
     def _perform_base_transcription(
-        self, audio: "np.ndarray", initial_prompt: str
-    ) -> Dict[str, Any]:
+        self, audio: np.ndarray[Any, np.dtype[Any]], initial_prompt: str
+    ) -> dict[str, Any]:
         """Perform initial transcription of audio using WhisperX.
 
         :param audio: Numpy array containing audio data
@@ -186,8 +196,11 @@ class Transcriber:
             self.log.error(f"Failed to perform base transcription: {str(e)}")
             raise TranscriptionError(e) from e
 
-    def load_alignment_model(self, language: str) -> Tuple[Any, dict]:
-        """Load alignment model for a specific language.
+    def load_alignment_model(self, language: str) -> tuple[Any, dict[str, Any]]:
+        """Load a prepared alignment model for a specific language.
+
+        Hugging Face models use cache-only resolution. Torchaudio models use
+        their separate weight cache, populated by the model seeder.
 
         :param language: Detected language code
         :return: Tuple containing alignment model and metadata
@@ -195,7 +208,9 @@ class Transcriber:
         if language not in self.alignment_models:
             self.log.info(f"Loading alignment model for language: {language}")
             model_a, metadata = self.whisperx.load_align_model(
-                language_code=language, device=self.device
+                language_code=language,
+                device=self.device,
+                model_cache_only=True,
             )
             self.alignment_models[language] = (model_a, metadata)
         else:
@@ -204,8 +219,11 @@ class Transcriber:
         return model_a, metadata
 
     def _align_transcription(
-        self, segments: list, audio: "np.ndarray", language: str
-    ) -> Dict[str, Any]:
+        self,
+        segments: list[dict[str, Any]],
+        audio: np.ndarray[Any, np.dtype[Any]],
+        language: str,
+    ) -> dict[str, Any]:
         """Align transcription segments with audio timing.
 
         :param segments: List of transcription segments
@@ -241,8 +259,8 @@ class Transcriber:
         return aligned_result
 
     def _perform_diarization(
-        self, audio: "np.ndarray", num_speakers: int
-    ) -> Optional[Dict[str, Any]]:
+        self, audio: np.ndarray[Any, np.dtype[Any]], num_speakers: int
+    ) -> dict[str, Any] | None:
         """Perform speaker diarization on the audio.
 
         :param audio: Numpy array containing audio data
@@ -266,8 +284,8 @@ class Transcriber:
             raise TranscriptionError(e) from e
 
     def _assign_speakers(
-        self, diarization_segments: Dict[str, Any], aligned_result: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, diarization_segments: dict[str, Any], aligned_result: dict[str, Any]
+    ) -> dict[str, Any]:
         """Assign speaker labels to transcription segments.
 
         :param diarization_segments: Dictionary containing speaker diarization results
@@ -292,8 +310,11 @@ class Transcriber:
         return result
 
     def _handle_diarization(
-        self, audio: "np.ndarray", aligned_result: Dict[str, Any], num_speakers: int
-    ) -> Dict[str, Any]:
+        self,
+        audio: np.ndarray[Any, np.dtype[Any]],
+        aligned_result: dict[str, Any],
+        num_speakers: int,
+    ) -> dict[str, Any]:
         """Handle the complete diarization workflow.
 
         :param audio: Numpy array containing audio data
@@ -311,9 +332,9 @@ class Transcriber:
 
     def _save_output(
         self,
-        result: Dict[str, Any],
-        input_file: Union[str, Path],
-        output_dir: Optional[Path],
+        result: dict[str, Any],
+        input_file: str | Path,
+        output_dir: Path | None,
         output_format: str,
     ) -> None:
         """Save transcription results to file.
@@ -361,7 +382,7 @@ class Transcriber:
                 f"Language '{detected_language}' is not supported. Supported languages are: {', '.join(VALID_LANGUAGES)}"
             )
 
-    def _extract_transcription_metadata(self, final_result: Dict[str, Any]) -> None:
+    def _extract_transcription_metadata(self, final_result: dict[str, Any]) -> None:
         """Extract and add metadata to the transcription result.
 
         :param final_result: The final transcription result to augment with metadata
@@ -389,7 +410,7 @@ class Transcriber:
                     float(avg_confidence), 4
                 )
 
-    def _move_result_tensors_to_cpu(self, result: Dict[str, Any]) -> Dict[str, Any]:
+    def _move_result_tensors_to_cpu(self, result: dict[str, Any]) -> dict[str, Any]:
         # Recursively move all tensors in the result dict to CPU
         _, _, torch = _import_dependencies()  # noqa : F401
         for key, value in result.items():
@@ -414,12 +435,12 @@ class Transcriber:
 
     def transcribe(
         self,
-        input_file: Union[str, Path],
+        input_file: str | Path,
         initial_prompt: str,
         num_speakers: int = DEFAULT_NUM_SPEAKERS,
         output_dir: Path | None = DEFAULT_OUTPUT_DIR,
         output_format: str = DEFAULT_OUTPUT_FORMAT,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Transcribe an audio file with optional speaker diarization.
 
         Main entry point for transcription. Processes the audio file through
@@ -439,8 +460,8 @@ class Transcriber:
             validated_path = self._validate_input_file(input_file)
             self.log.debug(
                 f"Memory before processing {validated_path}: "
-                f"{torch.cuda.memory_allocated() / 1e6} MB allocated, "
-                f"{torch.cuda.memory_reserved() / 1e6} MB reserved"
+                + f"{torch.cuda.memory_allocated() / 1e6} MB allocated, "
+                + f"{torch.cuda.memory_reserved() / 1e6} MB reserved"
             )
             audio = self._load_audio(validated_path)
             result = self._perform_base_transcription(audio, initial_prompt)
@@ -458,8 +479,8 @@ class Transcriber:
             del final_result
             self.log.debug(
                 f"Memory after processing {validated_path}: "
-                f"{torch.cuda.memory_allocated() / 1e6} MB allocated, "
-                f"{torch.cuda.memory_reserved() / 1e6} MB reserved"
+                + f"{torch.cuda.memory_allocated() / 1e6} MB allocated, "
+                + f"{torch.cuda.memory_reserved() / 1e6} MB reserved"
             )
             return augmented_result
         except Exception as e:

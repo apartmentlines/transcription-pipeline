@@ -1,3 +1,7 @@
+"""Test pipeline orchestration and command-line entry points."""
+
+from __future__ import annotations
+
 import pytest
 from pathlib import Path
 from unittest.mock import patch, Mock
@@ -26,9 +30,11 @@ from transcription_pipeline.constants import (
 
 
 class TestTranscriptionPipeline:
-    @pytest.mark.usefixtures("mock_transcriber")
+    """Verify pipeline configuration, execution and command-line behavior."""
+
     @pytest.fixture
-    def pipeline(self):
+    def pipeline(self, mock_transcriber: Mock) -> TranscriptionPipeline:
+        """Build a pipeline after activating the transcriber mock fixture."""
         return TranscriptionPipeline(api_key="test_key", domain="test_domain")
 
     def test_transcription_pipeline_initialization(self):

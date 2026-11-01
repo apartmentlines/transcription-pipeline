@@ -32,6 +32,8 @@ pip install -e ".[dev]"
 
 Can be run as a command-line script or integrated into other Python applications.
 
+Run `seed-models` before first use; Docker image setup already does this. Runtime loading of Whisper and Hugging Face alignment models uses only cached files and fails if the required files are missing.
+
 #### Command-Line Usage
 
 Run the pipeline by executing the `transcription-processor` script:

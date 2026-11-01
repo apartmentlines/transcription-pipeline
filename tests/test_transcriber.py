@@ -1,8 +1,18 @@
+"""Test transcription behavior and use of prepared model caches."""
+
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
 import pytest
 import numpy as np
 from unittest.mock import Mock, patch
 from transcription_pipeline.transcriber import TranscriptionError, Transcriber
 from transcription_pipeline.constants import DEFAULT_WHISPER_MODEL, DEFAULT_BATCH_SIZE
+
+
+WORKER_TIMEOUT_SECONDS = 5
 
 
 @pytest.fixture
@@ -87,15 +97,90 @@ def test_init_custom_values():
     assert transcriber.alignment_models == {}
 
 
-def test_initialize_whisper_model(mock_dependencies):
+def test_initialize_whisper_model(mock_dependencies: Mock) -> None:
+    """Resolve Whisper weights locally without Hub download orchestration."""
     _, mock_whisperx, _ = mock_dependencies.return_value
     transcriber = Transcriber()
     mock_whisperx.load_model.assert_called_once_with(
-        DEFAULT_WHISPER_MODEL, transcriber.device, compute_type=transcriber.compute_type
+        DEFAULT_WHISPER_MODEL,
+        transcriber.device,
+        compute_type=transcriber.compute_type,
+        local_files_only=True,
     )
 
 
-def test_load_alignment_model_caching(mock_dependencies):
+def test_cached_models_initialize_concurrently(mock_dependencies: Mock) -> None:
+    """Allow workers to overlap both cache-only model loading operations."""
+    _, mock_whisperx, _ = mock_dependencies.return_value
+    whisper_started = Barrier(2)
+    alignment_started = Barrier(2)
+
+    def load_model(
+        *_args: object, local_files_only: bool, **_kwargs: object
+    ) -> Mock:
+        """Fail if model loading is serialized or online access is enabled."""
+        assert local_files_only
+        _ = whisper_started.wait(timeout=WORKER_TIMEOUT_SECONDS)
+        return Mock()
+
+    def load_alignment(
+        *, language_code: str, device: str, model_cache_only: bool
+    ) -> tuple[Mock, dict[str, str]]:
+        """Require simultaneous alignment loading from the prepared cache."""
+        assert model_cache_only
+        assert device == "cpu"
+        _ = alignment_started.wait(timeout=WORKER_TIMEOUT_SECONDS)
+        return Mock(), {"language": language_code}
+
+    def initialize_worker() -> Transcriber:
+        """Initialize an independent worker and its English alignment model."""
+        transcriber = Transcriber()
+        _ = transcriber.load_alignment_model("en")
+        return transcriber
+
+    mock_whisperx.load_model.side_effect = load_model
+    mock_whisperx.load_align_model.side_effect = load_alignment
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(initialize_worker) for _ in range(2)]
+        workers = [
+            future.result(timeout=2 * WORKER_TIMEOUT_SECONDS)
+            for future in futures
+        ]
+
+    assert workers[0].model is not workers[1].model
+    assert workers[0].alignment_models["en"][0] is not workers[1].alignment_models["en"][0]
+
+
+def test_missing_whisper_cache_does_not_retry_online(mock_dependencies: Mock) -> None:
+    """Propagate missing-cache failures without falling back to downloads."""
+    _, mock_whisperx, _ = mock_dependencies.return_value
+    mock_whisperx.load_model.side_effect = FileNotFoundError("model not cached")
+
+    with pytest.raises(FileNotFoundError, match="model not cached"):
+        Transcriber()
+
+    mock_whisperx.load_model.assert_called_once_with(
+        DEFAULT_WHISPER_MODEL, "cpu", compute_type="int8", local_files_only=True
+    )
+
+
+def test_missing_alignment_cache_does_not_retry_online(mock_dependencies: Mock) -> None:
+    """Leave failed alignment loads uncached and propagate the loader error."""
+    _, mock_whisperx, _ = mock_dependencies.return_value
+    mock_whisperx.load_align_model.side_effect = FileNotFoundError("model not cached")
+    transcriber = Transcriber()
+
+    with pytest.raises(FileNotFoundError, match="model not cached"):
+        transcriber.load_alignment_model("es")
+
+    assert "es" not in transcriber.alignment_models
+    mock_whisperx.load_align_model.assert_called_once_with(
+        language_code="es", device="cpu", model_cache_only=True
+    )
+
+
+def test_load_alignment_model_caching(mock_dependencies: Mock) -> None:
+    """Load alignment weights from disk once and reuse the in-memory model."""
     # Mock whisperx's load_align_model
     _, mock_whisperx, _ = mock_dependencies.return_value
     mock_align_model = Mock()
@@ -110,7 +195,7 @@ def test_load_alignment_model_caching(mock_dependencies):
     # Call load_alignment_model for the first time
     model_a1, metadata1 = transcriber.load_alignment_model("en")
     mock_whisperx.load_align_model.assert_called_once_with(
-        language_code="en", device=transcriber.device
+        language_code="en", device=transcriber.device, model_cache_only=True
     )
     assert transcriber.alignment_models["en"] == (model_a1, metadata1)
 
@@ -124,7 +209,8 @@ def test_load_alignment_model_caching(mock_dependencies):
     assert metadata1 == metadata2
 
 
-def test_load_alignment_model_multiple_languages(mock_dependencies):
+def test_load_alignment_model_multiple_languages(mock_dependencies: Mock) -> None:
+    """Resolve each language from its prepared cache without remote fetches."""
     # Mock whisperx's load_align_model
     _, mock_whisperx, _ = mock_dependencies.return_value
     mock_align_model_en = Mock()
@@ -133,7 +219,12 @@ def test_load_alignment_model_multiple_languages(mock_dependencies):
     mock_align_metadata_es = {"metadata": "spanish"}
 
     # Side effects to return different models for different languages
-    def load_align_model_side_effect(language_code, device):
+    def load_align_model_side_effect(
+        language_code: str, device: str, model_cache_only: bool
+    ) -> tuple[Mock, dict[str, str]]:
+        """Return language-specific models after verifying cache-only loading."""
+        assert device == "cpu"
+        assert model_cache_only
         if language_code == "en":
             return (mock_align_model_en, mock_align_metadata_en)
         elif language_code == "es":
@@ -148,13 +239,13 @@ def test_load_alignment_model_multiple_languages(mock_dependencies):
     # Load 'en' alignment model
     model_en, metadata_en = transcriber.load_alignment_model("en")
     mock_whisperx.load_align_model.assert_called_with(
-        language_code="en", device=transcriber.device
+        language_code="en", device=transcriber.device, model_cache_only=True
     )
 
     # Load 'es' alignment model
     model_es, metadata_es = transcriber.load_alignment_model("es")
     mock_whisperx.load_align_model.assert_called_with(
-        language_code="es", device=transcriber.device
+        language_code="es", device=transcriber.device, model_cache_only=True
     )
 
     # Ensure both models are cached
