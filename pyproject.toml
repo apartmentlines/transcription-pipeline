@@ -7,7 +7,7 @@ name = "transcription-pipeline"
 version = "0.1.0"
 description = "A processing pipeline for transcribing audio files and storing the results in a database."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [
     { name="Chad Phillips", email="chad@apartmentlines.com" },

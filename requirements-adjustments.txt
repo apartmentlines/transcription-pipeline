@@ -1,2 +1,0 @@
-# These are adjustments to packages to be installed after the development package.
-ctranslate2==4.5.0

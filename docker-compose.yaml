@@ -1,4 +1,4 @@
-x-python-image: &default_python_image python:3.12.9-slim-bookworm
+x-python-image: &default_python_image python:3.13.18-slim-bookworm
 # x-networks: &default_networks
 #   - transcription-pipeline-network
 x-shared-volumes: &shared-volumes
