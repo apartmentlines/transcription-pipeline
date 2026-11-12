@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import os
 import argparse
 from unittest.mock import patch
+
 import pytest
+
 from transcription_pipeline.config import load_configuration, set_environment_variables
 
 

@@ -1,19 +1,25 @@
+from __future__ import annotations
+
+from unittest.mock import MagicMock
 import argparse
 import sys
-import pytest
 from unittest.mock import patch, Mock
+from typing import Any
+
+import pytest
 import requests
 import tenacity
+
+from transcription_pipeline.constants import (
+    DEFAULT_RETRY_ATTEMPTS,
+    DOWNLOAD_TIMEOUT,
+)
 from transcription_pipeline.utils import (
     positive_int,
     fail_hard,
     fail_soft,
     get_request,
     post_request,
-)
-from transcription_pipeline.constants import (
-    DEFAULT_RETRY_ATTEMPTS,
-    DOWNLOAD_TIMEOUT,
 )
 
 
@@ -25,20 +31,20 @@ def test_positive_int():
         positive_int("0")
 
 
-def test_fail_hard(caplog):
+def test_fail_hard(caplog: Any):
     with patch.object(sys, "exit") as mock_exit:
         fail_hard("Test error")
         mock_exit.assert_called_with(1)
         assert "Test error" in caplog.text
 
 
-def test_fail_soft(caplog):
+def test_fail_soft(caplog: Any):
     fail_soft("Soft error")
     assert "Soft error" in caplog.text
 
 
 @patch("requests.get")
-def test_get_request_success(mock_get):
+def test_get_request_success(mock_get: MagicMock):
     mock_response = Mock()
     mock_response.status_code = 200
     mock_get.return_value = mock_response
@@ -51,7 +57,7 @@ def test_get_request_success(mock_get):
 
 @patch("requests.get")
 @patch("tenacity.nap.time.sleep")  # Patch sleep to avoid delays
-def test_get_request_failure(_, mock_get):
+def test_get_request_failure(_: Any, mock_get: MagicMock):
     mock_get.side_effect = requests.exceptions.RequestException
     url = "http://example.com"
     params = {"api_key": "test_key"}
@@ -62,7 +68,7 @@ def test_get_request_failure(_, mock_get):
 
 
 @patch("requests.post")
-def test_post_request_success(mock_post):
+def test_post_request_success(mock_post: MagicMock):
     mock_response = Mock()
     mock_response.status_code = 200
     mock_post.return_value = mock_response
@@ -75,7 +81,7 @@ def test_post_request_success(mock_post):
 
 @patch("requests.post")
 @patch("tenacity.nap.time.sleep")  # Patch sleep to avoid delays
-def test_post_request_failure(_, mock_post):
+def test_post_request_failure(_: Any, mock_post: MagicMock):
     mock_post.side_effect = requests.exceptions.RequestException
     url = "http://example.com"
     data = {"key": "value"}
@@ -86,7 +92,7 @@ def test_post_request_failure(_, mock_post):
 
 
 @patch("requests.post")
-def test_post_request_json_success(mock_post):
+def test_post_request_json_success(mock_post: MagicMock):
     mock_response = Mock()
     mock_response.status_code = 200
     mock_post.return_value = mock_response
@@ -99,7 +105,7 @@ def test_post_request_json_success(mock_post):
 
 @patch("requests.post")
 @patch("tenacity.nap.time.sleep")
-def test_post_request_json_failure(_, mock_post):
+def test_post_request_json_failure(_: Any, mock_post: MagicMock):
     mock_post.side_effect = requests.exceptions.RequestException
     url = "http://example.com"
     data = {"key": "value"}

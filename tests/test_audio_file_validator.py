@@ -1,12 +1,21 @@
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import MagicMock
 from unittest.mock import Mock, patch
+
 import pytest
+
+from transcription_pipeline.constants import (
+    MAX_AUDIO_DURATION,
+    MIN_AUDIO_DURATION,
+)
 from transcription_pipeline.audio_file_validator import (
     AudioFileValidator,
     AudioFileLengthError,
     parse_arguments,
     main,
 )
-from transcription_pipeline.constants import MIN_AUDIO_DURATION, MAX_AUDIO_DURATION
 
 
 @pytest.fixture
@@ -32,10 +41,10 @@ def test_init():
     assert validator.max_duration == 600
 
 
-def test_validate_file_path_success(tmp_path):
+def test_validate_file_path_success(tmp_path: Path):
     test_file = tmp_path / "test.wav"
     test_file.touch()
-    validator = AudioFileValidator(test_file)
+    validator = AudioFileValidator()
     assert validator._validate_file_path(test_file) == test_file
 
 
@@ -45,7 +54,9 @@ def test_validate_file_path_not_found():
         validator.validate("nonexistent.wav")
 
 
-def test_open_wave_file(tmp_path, mock_wave_module, mock_wav_file):
+def test_open_wave_file(
+    tmp_path: Path, mock_wave_module: MagicMock, mock_wav_file: MagicMock
+):
     test_file = tmp_path / "test.wav"
     test_file.touch()
     mock_wave_module.open.return_value = mock_wav_file
@@ -56,7 +67,7 @@ def test_open_wave_file(tmp_path, mock_wave_module, mock_wav_file):
     mock_wave_module.open.assert_called_once_with(str(test_file), "r")
 
 
-def test_open_wave_file_error(tmp_path, mock_wave_module):
+def test_open_wave_file_error(tmp_path: Path, mock_wave_module: MagicMock):
     test_file = tmp_path / "test.wav"
     test_file.touch()
     mock_wave_module.open.side_effect = mock_wave_module.Error("Test error")
@@ -66,16 +77,18 @@ def test_open_wave_file_error(tmp_path, mock_wave_module):
         validator._open_wave_file(test_file)
 
 
-def test_calculate_duration(tmp_path, mock_wav_file):
+def test_calculate_duration(tmp_path: Path, mock_wav_file: MagicMock):
     test_file = tmp_path / "test.wav"
     test_file.touch()
-    validator = AudioFileValidator(test_file)
+    validator = AudioFileValidator()
 
     duration = validator._calculate_duration(mock_wav_file)
     assert duration == 3.0  # 48000 frames / 16000 Hz = 3 seconds
 
 
-def test_get_duration(tmp_path, mock_wave_module, mock_wav_file):
+def test_get_duration(
+    tmp_path: Path, mock_wave_module: MagicMock, mock_wav_file: MagicMock
+):
     test_file = tmp_path / "test.wav"
     test_file.touch()
     mock_wave_module.open.return_value = mock_wav_file
@@ -84,7 +97,9 @@ def test_get_duration(tmp_path, mock_wave_module, mock_wav_file):
     assert duration == 3.0
 
 
-def test_validate_success(tmp_path, mock_wave_module, mock_wav_file):
+def test_validate_success(
+    tmp_path: Path, mock_wave_module: MagicMock, mock_wav_file: MagicMock
+):
     test_file = tmp_path / "test.wav"
     test_file.touch()
     mock_wave_module.open.return_value = mock_wav_file
@@ -95,7 +110,9 @@ def test_validate_success(tmp_path, mock_wave_module, mock_wav_file):
     validator.validate(test_file)  # Should not raise any exceptions
 
 
-def test_validate_too_short(tmp_path, mock_wave_module, mock_wav_file):
+def test_validate_too_short(
+    tmp_path: Path, mock_wave_module: MagicMock, mock_wav_file: MagicMock
+):
     test_file = tmp_path / "test.wav"
     test_file.touch()
     mock_wave_module.open.return_value = mock_wav_file
@@ -107,7 +124,9 @@ def test_validate_too_short(tmp_path, mock_wave_module, mock_wav_file):
         validator.validate(test_file)
 
 
-def test_validate_too_long(tmp_path, mock_wave_module, mock_wav_file):
+def test_validate_too_long(
+    tmp_path: Path, mock_wave_module: MagicMock, mock_wav_file: MagicMock
+):
     test_file = tmp_path / "test.wav"
     test_file.touch()
     mock_wave_module.open.return_value = mock_wav_file
@@ -138,7 +157,12 @@ def test_parse_arguments_defaults():
         assert args.file == "test.wav"
 
 
-def test_main_success(tmp_path, capsys, mock_wave_module, mock_wav_file):
+def test_main_success(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    mock_wave_module: MagicMock,
+    mock_wav_file: MagicMock,
+):
     """Test successful validation using mocked wave module."""
     test_file = tmp_path / "test.wav"
     test_file.touch()
@@ -160,7 +184,7 @@ def test_main_success(tmp_path, capsys, mock_wave_module, mock_wav_file):
             assert captured.err == ""
 
 
-def test_main_failure(capsys):
+def test_main_failure(capsys: pytest.CaptureFixture[str]):
     with patch("sys.argv", ["script.py", "nonexistent.wav"]):
         with pytest.raises(SystemExit) as exc_info:
             main()

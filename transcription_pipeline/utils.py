@@ -1,9 +1,15 @@
+"""HTTP retry helpers and command-line validation."""
+
+from __future__ import annotations
+
 import argparse
 import sys
 import logging
-import requests
 from typing import Any
+
+import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
+
 from transcription_pipeline.constants import (
     DEFAULT_RETRY_ATTEMPTS,
     DEFAULT_RETRY_BACKOFF,
@@ -33,7 +39,7 @@ def fail_soft(message: str) -> None:
     stop=stop_after_attempt(DEFAULT_RETRY_ATTEMPTS),
     wait=wait_exponential(multiplier=DEFAULT_RETRY_BACKOFF),
 )
-def get_request(url: str, params: dict) -> requests.Response:
+def get_request(url: str, params: dict[str, Any]) -> requests.Response:
     response = requests.get(url, params=params, timeout=DOWNLOAD_TIMEOUT)
     response.raise_for_status()
     return response
@@ -43,7 +49,9 @@ def get_request(url: str, params: dict) -> requests.Response:
     stop=stop_after_attempt(DEFAULT_RETRY_ATTEMPTS),
     wait=wait_exponential(multiplier=DEFAULT_RETRY_BACKOFF),
 )
-def post_request(url: str, data: dict[str, Any], json: bool = False) -> requests.Response:
+def post_request(
+    url: str, data: dict[str, Any], json: bool = False
+) -> requests.Response:
     kwargs: dict[str, Any] = {
         "timeout": DOWNLOAD_TIMEOUT,
     }

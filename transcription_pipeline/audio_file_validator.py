@@ -1,24 +1,28 @@
-#!/usr/bin/env python3
+"""Validate WAV recordings before submitting them to inference."""
 
+from __future__ import annotations
+
+import logging
 import sys
 import wave
 import argparse
 from pathlib import Path
-from typing import Union, Any
+from typing import Any
 
-from download_pipeline_processor.logger import (  # pyright: ignore[reportMissingImports]
+from download_pipeline_processor.logger import (
     Logger,
 )
-from .constants import (
-    MIN_AUDIO_DURATION,
+
+from transcription_pipeline.constants import (
     MAX_AUDIO_DURATION,
+    MIN_AUDIO_DURATION,
 )
 
 
 class AudioFileLengthError(Exception):
     """Custom exception for audio file length validation errors."""
 
-    def __init__(self, exception: Union[str, Exception]) -> None:
+    def __init__(self, exception: str | Exception) -> None:
         super().__init__(f"Audio file length error: {str(exception)}")
 
 
@@ -36,6 +40,11 @@ class AudioFileValidator:
     :raises FileNotFoundError: If the audio file doesn't exist
     """
 
+    log: logging.Logger
+    min_duration: float
+    max_duration: float
+    wave_module: Any
+
     def __init__(
         self,
         min_duration: float = MIN_AUDIO_DURATION,
@@ -48,7 +57,7 @@ class AudioFileValidator:
         self.max_duration = max_duration
         self.wave_module = wave_module
 
-    def _validate_file_path(self, file_path: Union[str, Path]) -> Path:
+    def _validate_file_path(self, file_path: str | Path) -> Path:
         """Validate and convert file path to Path object.
 
         :param file_path: Path to validate
@@ -99,7 +108,7 @@ class AudioFileValidator:
             self.log.debug(f"Calculated duration: {duration:.2f}s")
             return duration
 
-    def validate(self, file_path: Union[str, Path]) -> None:
+    def validate(self, file_path: str | Path) -> None:
         """Validate WAV file meets duration requirements.
 
         :param file_path: Path to WAV file as string or Path object

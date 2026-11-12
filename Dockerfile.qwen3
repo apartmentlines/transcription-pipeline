@@ -1,0 +1,76 @@
+# syntax=docker/dockerfile:1
+ARG BASE_IMAGE=python:3.12.16-slim-bookworm
+
+FROM ${BASE_IMAGE} AS runtime-base
+ENV PATH=/opt/venv/bin:${PATH} \
+    HF_HOME=/opt/models/huggingface \
+    TORCH_HOME=/opt/models/torch \
+    NLTK_DATA=/opt/models/nltk \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl ffmpeg libgomp1 libsndfile1 openssh-server procps \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL -o /usr/local/bin/runpodctl https://github.com/runpod/runpodctl/releases/download/v3.0.1/runpodctl-linux-amd64 \
+    && chmod 755 /usr/local/bin/runpodctl
+
+FROM runtime-base AS dependencies-build
+RUN apt-get update && apt-get install -y --no-install-recommends gcc git \
+    && rm -rf /var/lib/apt/lists/*
+RUN python -m venv /opt/venv
+COPY requirements-qwen3-frozen.txt /tmp/requirements-qwen3-frozen.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install -r /tmp/requirements-qwen3-frozen.txt \
+    && python -m pip check
+
+FROM runtime-base AS dependencies
+COPY --from=dependencies-build /opt/venv /opt/venv
+
+FROM dependencies AS models
+WORKDIR /model-seeding
+COPY transcription_pipeline/__init__.py transcription_pipeline/constants.py transcription_pipeline/deployment.py transcription_pipeline/errors.py transcription_pipeline/model_seeding.py transcription_pipeline/seed_models.py ./transcription_pipeline/
+COPY transcription_pipeline/backends/__init__.py transcription_pipeline/backends/qwen3_seed.py ./transcription_pipeline/backends/
+RUN --mount=type=cache,target=/var/cache/transcription-models-qwen3,sharing=locked \
+    HF_HOME=/var/cache/transcription-models-qwen3/huggingface \
+    TORCH_HOME=/var/cache/transcription-models-qwen3/torch \
+    NLTK_DATA=/var/cache/transcription-models-qwen3/nltk \
+    python -m transcription_pipeline.seed_models --backend qwen3 \
+    && mkdir -p /opt/models \
+    && cp -a /var/cache/transcription-models-qwen3/. /opt/models/
+
+FROM dependencies AS application
+ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+COPY --from=models /opt/models /opt/models
+WORKDIR /usr/src/transcription-pipeline
+COPY pyproject.toml README.md LICENSE ./
+COPY transcription_pipeline ./transcription_pipeline
+COPY run-pod.sh ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install --no-deps --no-build-isolation -e . \
+    && python -m pip check
+RUN printf '%s\n' \
+    'export PATH=/opt/venv/bin:${PATH}' \
+    'export HF_HOME=${HF_HOME:-/opt/models/huggingface}' \
+    'export TORCH_HOME=${TORCH_HOME:-/opt/models/torch}' \
+    'export NLTK_DATA=${NLTK_DATA:-/opt/models/nltk}' \
+    'export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1' \
+    > /etc/profile.d/transcription-venv.sh
+CMD ["transcription-processor", "--limit", "1000"]
+
+FROM application AS development
+RUN apt-get update && apt-get install -y --no-install-recommends gcc git \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements-dev.txt /tmp/requirements-dev.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install -r /tmp/requirements-dev.txt \
+    && python -m pip check
+COPY tests ./tests
+
+FROM application AS runtime-flash-attention
+COPY requirements-qwen3-flash-attention.txt /tmp/requirements-qwen3-flash-attention.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install --no-deps --only-binary=:all: --require-hashes -r /tmp/requirements-qwen3-flash-attention.txt \
+    && python -m pip check \
+    && python -c 'import torch, flash_attn, flash_attn_2_cuda; print(flash_attn.__version__)'
+ENV TRANSCRIPTION_QWEN_ATTENTION=flash_attention_2
+
+FROM application AS runtime

@@ -1,0 +1,18 @@
+services:
+  transcription-processor:
+    image: apartmentlinesproduction/transcription-pipeline-qwen3:v0.1.0
+    build:
+      context: .
+      dockerfile: Dockerfile.qwen3
+      target: runtime
+    environment:
+      TRANSCRIPTION_API_KEY: ${TRANSCRIPTION_API_KEY}
+      TRANSCRIPTION_DOMAIN: ${TRANSCRIPTION_DOMAIN}
+    command: ["transcription-processor", "--limit", "1000"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

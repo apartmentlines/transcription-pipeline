@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-import pytest
+from unittest.mock import MagicMock
 from pathlib import Path
 from unittest.mock import patch, Mock
-from download_pipeline_processor.processing_pipeline import (  # pyright: ignore[reportMissingImports]
+from typing import Any
+
+import pytest
+from download_pipeline_processor.processing_pipeline import (
     ProcessingPipeline,
+)
+
+from transcription_pipeline.constants import (
+    DEFAULT_DOWNLOAD_CACHE,
+    DEFAULT_DOWNLOAD_QUEUE_SIZE,
 )
 from transcription_pipeline.processors.transcription_pre_processor import (
     TranscriptionPreProcessor,
@@ -22,19 +30,16 @@ from transcription_pipeline.main import (
     main,
     TranscriptionPipeline,
 )
-from transcription_pipeline.constants import (
-    DEFAULT_PROCESSING_LIMIT,
-    DEFAULT_DOWNLOAD_QUEUE_SIZE,
-    DEFAULT_DOWNLOAD_CACHE,
-)
+
+pytestmark = pytest.mark.usefixtures("mock_deployment")
 
 
 class TestTranscriptionPipeline:
     """Verify pipeline configuration, execution and command-line behavior."""
 
     @pytest.fixture
-    def pipeline(self, mock_transcriber: Mock) -> TranscriptionPipeline:
-        """Build a pipeline after activating the transcriber mock fixture."""
+    def pipeline(self) -> TranscriptionPipeline:
+        """Build a pipeline with the test deployment configuration."""
         return TranscriptionPipeline(api_key="test_key", domain="test_domain")
 
     def test_transcription_pipeline_initialization(self):
@@ -96,7 +101,7 @@ class TestTranscriptionPipeline:
         assert pipeline.pipeline.simulate_downloads is True
         assert pipeline.pipeline.debug is True
         assert pipeline.pipeline.pre_processor_class == TranscriptionPreProcessor
-        assert pipeline.pipeline.processor_class == TranscriptionProcessor
+        assert issubclass(pipeline.pipeline.processor_class, TranscriptionProcessor)
         assert pipeline.pipeline.post_processor_class == TranscriptionPostProcessor
 
     def test_processing_pipeline_initialization_defaults(self):
@@ -106,17 +111,17 @@ class TestTranscriptionPipeline:
         # Test ProcessingPipeline instance
         assert pipeline.pipeline is not None
         assert isinstance(pipeline.pipeline, ProcessingPipeline)
-        assert pipeline.pipeline.processing_limit == DEFAULT_PROCESSING_LIMIT
+        assert pipeline.pipeline.processing_limit == 3
         assert pipeline.pipeline.download_queue_size == DEFAULT_DOWNLOAD_QUEUE_SIZE
         assert pipeline.pipeline.download_cache == DEFAULT_DOWNLOAD_CACHE
         assert pipeline.pipeline.simulate_downloads is False
         assert pipeline.pipeline.debug is False
         assert pipeline.pipeline.pre_processor_class == TranscriptionPreProcessor
-        assert pipeline.pipeline.processor_class == TranscriptionProcessor
+        assert issubclass(pipeline.pipeline.processor_class, TranscriptionProcessor)
         assert pipeline.pipeline.post_processor_class == TranscriptionPostProcessor
 
     @patch("transcription_pipeline.main.get_request")
-    def test_retrieve_file_data_success(self, mock_get_request):
+    def test_retrieve_file_data_success(self, mock_get_request: MagicMock):
         pipeline = TranscriptionPipeline(
             api_key="test_key",
             domain="test_domain",
@@ -144,7 +149,7 @@ class TestTranscriptionPipeline:
         )
 
     @patch("transcription_pipeline.main.get_request")
-    def test_retrieve_file_data_failure(self, mock_get_request):
+    def test_retrieve_file_data_failure(self, mock_get_request: MagicMock):
         pipeline = TranscriptionPipeline(
             api_key="test_key",
             domain="test_domain",
@@ -168,7 +173,7 @@ class TestTranscriptionPipeline:
             },
         )
 
-    def test_prepare_file_data(self, pipeline):
+    def test_prepare_file_data(self, pipeline: Any):
         files = [
             {"url": "http://example.com/file1"},
             {"url": "http://example.com/file2"},
@@ -178,21 +183,21 @@ class TestTranscriptionPipeline:
         assert updated_files[0]["url"] == "http://example.com/file1?api_key=test_key"
         assert updated_files[1]["url"] == "http://example.com/file2?api_key=test_key"
 
-    def test_setup_configuration(self, pipeline):
+    def test_setup_configuration(self, pipeline: Any):
         with patch(
             "transcription_pipeline.main.set_environment_variables"
         ) as mock_set_env:
             pipeline.setup_configuration()
             mock_set_env.assert_called_once_with("test_key", "test_domain")
 
-    def test_build_retrieve_request_url(self, pipeline):
+    def test_build_retrieve_request_url(self, pipeline: Any):
         """Test that the retrieve request URL is correctly constructed."""
         expected_url = (
             "https://test_domain/al/transcriptions/retrieve/operator-recordings/ready"
         )
         assert pipeline.build_retrieve_request_url() == expected_url
 
-    def test_build_retrieve_request_params(self, pipeline):
+    def test_build_retrieve_request_params(self, pipeline: Any):
         """Test that the retrieve request parameters are correctly constructed."""
         pipeline.limit = 10
         expected_params = {"api_key": "test_key", "limit": "10"}
@@ -228,7 +233,7 @@ class TestTranscriptionPipeline:
         }
 
     @patch("transcription_pipeline.main.get_request")
-    def test_retrieve_file_data_with_filters(self, mock_get_request):
+    def test_retrieve_file_data_with_filters(self, mock_get_request: MagicMock):
         """Test that retrieve_file_data passes filters correctly."""
         pipeline = TranscriptionPipeline(
             api_key="test_key",
@@ -262,7 +267,12 @@ class TestTranscriptionPipeline:
     @patch.object(TranscriptionPipeline, "retrieve_file_data")
     @patch.object(TranscriptionPipeline, "setup_configuration")
     def test_run_successful_execution(
-        self, mock_setup, mock_retrieve, mock_prepare, mock_run, pipeline
+        self,
+        mock_setup: MagicMock,
+        mock_retrieve: MagicMock,
+        mock_prepare: MagicMock,
+        mock_run: MagicMock,
+        pipeline: Any,
     ):
         mock_files = [
             {"id": "1", "url": "http://example.com/file1"},
@@ -283,7 +293,12 @@ class TestTranscriptionPipeline:
     @patch.object(TranscriptionPipeline, "retrieve_file_data")
     @patch.object(TranscriptionPipeline, "setup_configuration")
     def test_run_no_files(
-        self, mock_setup, mock_retrieve, mock_prepare, mock_run, pipeline
+        self,
+        mock_setup: MagicMock,
+        mock_retrieve: MagicMock,
+        mock_prepare: MagicMock,
+        mock_run: MagicMock,
+        pipeline: Any,
     ):
         mock_retrieve.return_value = []
 
@@ -296,7 +311,9 @@ class TestTranscriptionPipeline:
 
     @patch("download_pipeline_processor.processing_pipeline.ProcessingPipeline.run")
     @patch.object(TranscriptionPipeline, "setup_configuration")
-    def test_run_configuration_error(self, mock_setup, mock_run, pipeline):
+    def test_run_configuration_error(
+        self, mock_setup: MagicMock, mock_run: MagicMock, pipeline: Any
+    ):
         mock_setup.side_effect = ValueError("Configuration error")
 
         with pytest.raises(ValueError, match="Configuration error"):
@@ -306,7 +323,13 @@ class TestTranscriptionPipeline:
     @patch("download_pipeline_processor.processing_pipeline.ProcessingPipeline.run")
     @patch.object(TranscriptionPipeline, "retrieve_file_data")
     @patch.object(TranscriptionPipeline, "setup_configuration")
-    def test_run_retrieve_error(self, mock_setup, mock_retrieve, mock_run, pipeline):
+    def test_run_retrieve_error(
+        self,
+        mock_setup: MagicMock,
+        mock_retrieve: MagicMock,
+        mock_run: MagicMock,
+        pipeline: Any,
+    ):
         mock_retrieve.side_effect = Exception("Retrieval error")
 
         with pytest.raises(Exception, match="Retrieval error"):
@@ -316,15 +339,18 @@ class TestTranscriptionPipeline:
 
     @pytest.mark.usefixtures("mock_transcriber")
     @patch("transcription_pipeline.main.TranscriptionPipeline")
-    def test_main_success(self, mock_pipeline):
+    def test_main_success(self, mock_pipeline: MagicMock):
         mock_pipeline_instance = Mock()
+        mock_pipeline_instance.run.return_value = 0
         mock_pipeline.return_value = mock_pipeline_instance
 
         with patch(
             "sys.argv",
             ["main.py", "--debug", "--api-key", "test_key", "--domain", "test_domain"],
         ):
-            main()
+            with pytest.raises(SystemExit) as caught:
+                main()
+            assert caught.value.code == 0
 
         mock_pipeline.assert_called_once_with(
             api_key="test_key",
@@ -333,10 +359,12 @@ class TestTranscriptionPipeline:
             limit=None,
             min_id=None,
             max_id=None,
-            processing_limit=DEFAULT_PROCESSING_LIMIT,
+            processing_limit=None,
             download_queue_size=DEFAULT_DOWNLOAD_QUEUE_SIZE,
             download_cache=DEFAULT_DOWNLOAD_CACHE,
             simulate_downloads=False,
+            backend=None,
+            model_manifest=None,
         )
         mock_pipeline_instance.run.assert_called_once()
 
@@ -362,9 +390,10 @@ class TestTranscriptionPipeline:
 
     @pytest.mark.usefixtures("mock_transcriber")
     @patch("transcription_pipeline.main.TranscriptionPipeline")
-    def test_main_with_filters(self, mock_pipeline):
+    def test_main_with_filters(self, mock_pipeline: MagicMock):
         """Test that main() properly passes filter arguments to TranscriptionPipeline."""
         mock_pipeline_instance = Mock()
+        mock_pipeline_instance.run.return_value = 0
         mock_pipeline.return_value = mock_pipeline_instance
 
         with patch(
@@ -383,7 +412,9 @@ class TestTranscriptionPipeline:
                 "50",
             ],
         ):
-            main()
+            with pytest.raises(SystemExit) as caught:
+                main()
+            assert caught.value.code == 0
 
         mock_pipeline.assert_called_once_with(
             api_key="test_key",
@@ -392,16 +423,18 @@ class TestTranscriptionPipeline:
             max_id=200,
             debug=False,
             limit=50,
-            processing_limit=DEFAULT_PROCESSING_LIMIT,
+            processing_limit=None,
             download_queue_size=DEFAULT_DOWNLOAD_QUEUE_SIZE,
             download_cache=DEFAULT_DOWNLOAD_CACHE,
             simulate_downloads=False,
+            backend=None,
+            model_manifest=None,
         )
         mock_pipeline_instance.run.assert_called_once()
 
 
 @patch("transcription_pipeline.main.load_configuration")
-def test_main_configuration_error(mock_load_config):
+def test_main_configuration_error(mock_load_config: MagicMock):
     mock_load_config.side_effect = ValueError("Test error")
     with patch("sys.argv", ["main.py"]):
         with patch("transcription_pipeline.main.fail_hard") as mock_fail:
@@ -442,3 +475,56 @@ def test_parse_arguments():
         assert args.download_queue_size == 15
         assert args.download_cache == Path("/tmp/test")
         assert args.simulate_downloads is True
+
+
+def test_framework_exit_code_propagates():
+    """Preserve the framework result instead of reporting an implicit success."""
+    pipeline = TranscriptionPipeline(api_key="key", domain="example.com")
+    with (
+        patch.object(
+            pipeline,
+            "retrieve_file_data",
+            return_value=[{"url": "http://example.com/a.wav"}],
+        ),
+        patch.object(pipeline.pipeline, "run", return_value=9),
+    ):
+        assert pipeline.run() == 9
+
+
+def test_empty_queue_is_success():
+    pipeline = TranscriptionPipeline(api_key="key", domain="example.com")
+    with patch.object(pipeline, "retrieve_file_data", return_value=[]):
+        assert pipeline.run() == 0
+
+
+def test_worker_initialization_failure_reaches_postprocessing_and_exit_status(
+    mock_transcriber: MagicMock, tmp_path: Path
+):
+    """Exercise the actual pinned framework's file-error path after load failure."""
+    from download_pipeline_processor.file_data import FileData
+    from transcription_pipeline.errors import TranscriptionError
+
+    failure = TranscriptionError("CUDA out of memory", code="cuda_oom", transient=True)
+    mock_transcriber.side_effect = failure
+    pipeline = TranscriptionPipeline(api_key="key", domain="example.com")
+    worker = pipeline.pipeline.processor_class(debug=False)
+    pipeline.pipeline.thread_local.processor = worker
+    audio = tmp_path / "recording.wav"
+    audio.write_bytes(b"test")
+    file_data = FileData(
+        id="1", name="fixture", url="http://example.com/audio", local_path=audio
+    )
+    pipeline.pipeline.process_file(file_data)
+    result, failed_file = pipeline.pipeline.post_processing_queue.get_nowait()
+    assert result is None
+    assert failed_file.error.error is failure
+    assert not audio.exists()
+    with (
+        patch.object(
+            pipeline,
+            "retrieve_file_data",
+            return_value=[{"url": "http://example.com/audio"}],
+        ),
+        patch.object(pipeline.pipeline, "run", return_value=0),
+    ):
+        assert pipeline.run() == 1

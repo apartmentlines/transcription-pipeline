@@ -1,4 +1,4 @@
-x-image: &default_image apartmentlinesproduction/transcription-pipeline:v0.1.0
+x-image: &default_image apartmentlinesproduction/transcription-pipeline-whisperx:v0.1.0
 x-shared-volumes: &shared-volumes
   - .:/usr/src/transcription-pipeline
 
@@ -7,7 +7,7 @@ x-secrets-environment: &secrets_environment
   TRANSCRIPTION_API_KEY: ${TRANSCRIPTION_API_KEY}
   TRANSCRIPTION_DOMAIN: ${TRANSCRIPTION_DOMAIN}
 
-x-command: &default_command [ "transcription-processor", "--limit", "1000", "--processing-limit", "2" ]
+x-command: &default_command [ "transcription-processor", "--limit", "1000" ]
 
 services:
   transcription-local-service:

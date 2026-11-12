@@ -1,5 +1,6 @@
 services:
   transcription-processor:
+    image: ${COMPOSE_PROJECT_NAME}-development:local
     build:
       target: development
     command: [ "sleep", "1d" ]

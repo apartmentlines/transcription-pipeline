@@ -1,6 +1,11 @@
+from __future__ import annotations
+
 import logging
-import pytest
 from unittest.mock import Mock
+
+from download_pipeline_processor.file_data import FileData
+import pytest
+
 from transcription_pipeline.processors.transcription_pre_processor import (
     TranscriptionPreProcessor,
 )
@@ -18,7 +23,7 @@ def test_transcription_pre_processor_instantiation_with_debug():
     assert processor.audio_file_validator.log.getEffectiveLevel() == logging.DEBUG
 
 
-def test_pre_process_success(file_data):
+def test_pre_process_success(file_data: FileData):
     processor = TranscriptionPreProcessor()
     processor.audio_file_validator.validate = Mock()
     result = processor.pre_process(file_data)
@@ -28,7 +33,7 @@ def test_pre_process_success(file_data):
     assert result == file_data
 
 
-def test_pre_process_validation_failure(file_data):
+def test_pre_process_validation_failure(file_data: FileData):
     processor = TranscriptionPreProcessor()
     processor.audio_file_validator.validate = Mock(
         side_effect=AudioFileLengthError("File too short")

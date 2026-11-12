@@ -4,6 +4,8 @@ This interface accepts a single request to trigger the pipeline and then
 signals completion before the process exits. Designed for one-shot container execution.
 """
 
+from __future__ import annotations
+
 import os
 import argparse
 import sys
@@ -21,11 +23,12 @@ from download_pipeline_processor.logger import (
 )
 
 from transcription_pipeline.constants import (
+    DEFAULT_REST_FAILURE_EXIT_CODE,
     DEFAULT_REST_HOST,
     DEFAULT_REST_PORT,
-    DEFAULT_REST_FAILURE_EXIT_CODE,
 )
 from transcription_pipeline.main import TranscriptionPipeline
+from transcription_pipeline.deployment import Deployment, ManifestStore
 from transcription_pipeline import utils
 
 
@@ -40,15 +43,29 @@ class TranscriptionRestInterface:
     :param debug: Enable debug logging for the interface and potentially the pipeline.
     :type debug: bool
     """
-    def __init__(self, debug: bool = False) -> None:
+
+    deployment: Deployment
+    validator: PipelineConfigValidator
+
+    def __init__(
+        self,
+        debug: bool = False,
+        backend: str | None = None,
+        model_manifest: Path | None = None,
+        deployment: Deployment | None = None,
+    ) -> None:
         """Initialize the REST interface components and state."""
         self.debug: bool = debug
-        self.log: logging.Logger = Logger("TranscriptionRESTInterface", debug=self.debug)
-        self.validator: PipelineConfigValidator = PipelineConfigValidator()
+        self.log: logging.Logger = Logger(
+            "TranscriptionRESTInterface", debug=self.debug
+        )
+        self.deployment = deployment or ManifestStore.load(model_manifest, backend)
+        if backend is not None:
+            self.deployment.assert_backend(backend)
+        self.log.info(self.deployment.description())
+        self.validator = PipelineConfigValidator(self.deployment)
         self.manager: PipelineLifecycleManager = PipelineLifecycleManager(
-            callback_notifier=send_callback,
-            logger=self.log,
-            debug=self.debug
+            callback_notifier=send_callback, logger=self.log, debug=self.debug
         )
 
     def run_server(self, host: str, port: int, api_key: str | None) -> None:
@@ -67,25 +84,28 @@ class TranscriptionRestInterface:
             validator=self.validator,
             api_key=api_key,
             logger=self.log,
-            debug=self.debug
+            debug=self.debug,
         )
 
         def run_flask_app() -> None:
             app.run(host=host, port=port, debug=self.debug, use_reloader=False)
 
         flask_thread: threading.Thread = threading.Thread(
-            target=run_flask_app,
-            daemon=True
+            target=run_flask_app, daemon=True
         )
         flask_thread.start()
-        self.log.info(f"Flask server started in background thread on http://{host}:{port}")
+        self.log.info(
+            f"Flask server started in background thread on http://{host}:{port}"
+        )
 
         # Wait for the pipeline manager to signal completion
         self.log.info("Waiting for pipeline completion signal...")
-        self.manager.wait_for_completion() # Blocks here
+        self.manager.wait_for_completion()  # Blocks here
 
         exit_code: int = self.manager.get_exit_code()
-        self.log.info(f"Pipeline completion signal received. Exiting with code {exit_code}.")
+        self.log.info(
+            f"Pipeline completion signal received. Exiting with code {exit_code}."
+        )
         sys.exit(exit_code)
 
 
@@ -96,8 +116,13 @@ class PipelineConfigValidator:
     positive integers, and checks the API key if required.
     """
 
+    deployment: Deployment
+
+    def __init__(self, deployment: Deployment) -> None:
+        self.deployment = deployment
+
     def validate(
-        self, data: dict[str, Any], expected_api_key: str | None
+        self, data: object, expected_api_key: str | None
     ) -> tuple[dict[str, Any], str | None]:
         """Parse and validate the JSON payload from the /run request.
 
@@ -110,6 +135,12 @@ class PipelineConfigValidator:
         :rtype: tuple[dict[str, Any], str | None]
         :raises ValueError: If required parameters are missing or validation fails.
         """
+        if not isinstance(data, dict):
+            raise ValueError("Request body must be a JSON object")
+        if "model_manifest" in data or "model-manifest" in data:
+            raise ValueError("Requests cannot select a deployment manifest")
+        if "backend" in data:
+            self.deployment.assert_backend(data["backend"])
         api_key: str | None = data.get("api_key")
         domain: str | None = data.get("domain")
 
@@ -127,6 +158,8 @@ class PipelineConfigValidator:
             "domain": domain,
             "debug": debug,
             "simulate_downloads": simulate_downloads,
+            "backend": self.deployment.backend,
+            "deployment": self.deployment,
         }
 
         limit: int | None = self._validate_positive_int(data.get("limit"), "limit")
@@ -138,10 +171,14 @@ class PipelineConfigValidator:
         max_id: int | None = self._validate_positive_int(data.get("max_id"), "max_id")
         if max_id is not None:
             kwargs["max_id"] = max_id
-        processing_limit: int | None = self._validate_positive_int(data.get("processing_limit"), "processing_limit")
+        processing_limit: int | None = self._validate_positive_int(
+            data.get("processing_limit"), "processing_limit"
+        )
         if processing_limit is not None:
             kwargs["processing_limit"] = processing_limit
-        download_queue_size: int | None = self._validate_positive_int(data.get("download_queue_size"),"download_queue_size")
+        download_queue_size: int | None = self._validate_positive_int(
+            data.get("download_queue_size"), "download_queue_size"
+        )
         if download_queue_size is not None:
             kwargs["download_queue_size"] = download_queue_size
 
@@ -154,9 +191,7 @@ class PipelineConfigValidator:
 
         return kwargs, callback_url
 
-    def _validate_positive_int(
-        self, value: str | int | None, name: str
-    ) -> int | None:
+    def _validate_positive_int(self, value: str | int | None, name: str) -> int | None:
         """Validate if a value is a positive integer.
 
         :param value: The value to validate.
@@ -176,9 +211,10 @@ class PipelineConfigValidator:
             return int_value
         except (ValueError, TypeError) as e:
             if isinstance(e, TypeError):
-                 raise ValueError(f"Invalid value for {name}: expected an integer or string convertible to integer.") from e
+                raise ValueError(
+                    f"Invalid value for {name}: expected an integer or string convertible to integer."
+                ) from e
             raise ValueError(f"Invalid value for {name}: {e}") from e
-
 
     def _validate_api_key(
         self, provided_key: str | None, expected_key: str | None
@@ -199,7 +235,9 @@ class PipelineConfigValidator:
             raise ValueError("Invalid API key.")
 
 
-def send_callback(url: str, payload: dict[str, Any], logger: logging.Logger, debug: bool = False) -> None:
+def send_callback(
+    url: str, payload: dict[str, Any], logger: logging.Logger, debug: bool = False
+) -> None:
     """Send a POST request to the callback URL using utils.post_request.
 
     Logs errors but does not raise exceptions.
@@ -237,14 +275,17 @@ class PipelineLifecycleManager:
     :param debug: Enable debug logging.
     :type debug: bool
     """
+
     def __init__(
         self,
         callback_notifier: Callable[[str, dict[str, Any], logging.Logger, bool], None],
         logger: logging.Logger,
-        debug: bool = False
+        debug: bool = False,
     ) -> None:
         """Initialize the pipeline lifecycle manager."""
-        self.callback_notifier: Callable[[str, dict[str, Any], logging.Logger, bool], None] = callback_notifier
+        self.callback_notifier: Callable[
+            [str, dict[str, Any], logging.Logger, bool], None
+        ] = callback_notifier
         self.log: logging.Logger = logger
         self.debug: bool = debug
         self._lock: threading.Lock = threading.Lock()
@@ -281,7 +322,9 @@ class PipelineLifecycleManager:
                 exit_code = None
             return {"status": status, "exit_code": exit_code}
 
-    def start_pipeline(self, pipeline_kwargs: dict[str, Any], callback_url: str | None) -> bool:
+    def start_pipeline(
+        self, pipeline_kwargs: dict[str, Any], callback_url: str | None
+    ) -> bool:
         """Start the transcription pipeline in a background thread.
 
         Sets up logging, starts the thread, and updates state.
@@ -301,24 +344,28 @@ class PipelineLifecycleManager:
             # Reset state for a new run
             self._pipeline_started = True
             self._pipeline_completed = False
-            self._pipeline_exit_code = DEFAULT_REST_FAILURE_EXIT_CODE # Reset to default failure
+            self._pipeline_exit_code = (
+                DEFAULT_REST_FAILURE_EXIT_CODE  # Reset to default failure
+            )
             self._pipeline_completion_event.clear()
-            self.pipeline_log_file_path = None # Reset log path
+            self.pipeline_log_file_path = None  # Reset log path
 
             try:
                 self._setup_pipeline_logging()
             except Exception as e:
-                self.log.error(f"Failed to set up pipeline logging: {e}", exc_info=self.debug)
+                self.log.error(
+                    f"Failed to set up pipeline logging: {e}", exc_info=self.debug
+                )
                 # Mark as failed immediately if logging setup fails
                 self._pipeline_completed = True
                 self._pipeline_completion_event.set()
-                return False # Indicate start failure
+                return False  # Indicate start failure
 
             # Start the background task
             thread: threading.Thread = threading.Thread(
                 target=self._run_pipeline_task,
                 args=(pipeline_kwargs, callback_url),
-                daemon=True # Ensure thread doesn't block exit
+                daemon=True,  # Ensure thread doesn't block exit
             )
             thread.start()
             self.log.info("Pipeline execution thread started.")
@@ -340,8 +387,9 @@ class PipelineLifecycleManager:
         os.environ["DOWNLOAD_PIPELINE_PROCESSOR_LOG_FILE"] = self.pipeline_log_file_path
         self.log.info(f"Pipeline logging configured to: {self.pipeline_log_file_path}")
 
-
-    def _run_pipeline_task(self, pipeline_kwargs: dict[str, Any], callback_url: str | None) -> None:
+    def _run_pipeline_task(
+        self, pipeline_kwargs: dict[str, Any], callback_url: str | None
+    ) -> None:
         """The target function for the background pipeline execution thread.
 
         Instantiates and runs the TranscriptionPipeline, handles exceptions,
@@ -357,19 +405,24 @@ class PipelineLifecycleManager:
         exit_code: int = DEFAULT_REST_FAILURE_EXIT_CODE
 
         try:
-            self.log.info("Instantiating and starting pipeline run in background thread...")
+            self.log.info(
+                "Instantiating and starting pipeline run in background thread..."
+            )
             # Ensure the log file env var is set (should be by start_pipeline)
             if not os.environ.get("DOWNLOAD_PIPELINE_PROCESSOR_LOG_FILE"):
-                 raise RuntimeError("Pipeline log file environment variable not set.")
+                raise RuntimeError("Pipeline log file environment variable not set.")
 
             pipeline: TranscriptionPipeline = TranscriptionPipeline(**pipeline_kwargs)
-            pipeline.run() # This blocks until the pipeline is done
-            self.log.info("Pipeline run finished successfully in background thread.")
-            task_success = True
-            exit_code = 0 # Success code
+            exit_code = pipeline.run()
+            task_success = exit_code == 0
+            if not task_success:
+                error_message = f"Pipeline failed with exit code {exit_code}"
+            self.log.info(f"Pipeline run finished with exit code {exit_code}.")
         except Exception as e:
             error_message = str(e)
-            self.log.error(f"Error during pipeline execution: {error_message}", exc_info=self.debug)
+            self.log.error(
+                f"Error during pipeline execution: {error_message}", exc_info=self.debug
+            )
             # Keep default failure exit code
         finally:
             # Clean up environment variable
@@ -400,7 +453,7 @@ class PipelineLifecycleManager:
             self.log.error("Log file path not set, cannot fetch logs.")
             return "Log file path not set."
         try:
-            with open(log_path, 'r') as log_file:
+            with open(log_path, "r") as log_file:
                 log_contents = log_file.read()
             # Optionally delete the log file after reading if desired
             # os.remove(log_path)
@@ -415,7 +468,9 @@ class PipelineLifecycleManager:
             self.log.error(error_message, exc_info=self.debug)
             return error_message
 
-    def _trigger_callback(self, task_success: bool, error_message: str, callback_url: str | None) -> None:
+    def _trigger_callback(
+        self, task_success: bool, error_message: str, callback_url: str | None
+    ) -> None:
         """Construct the payload and send the completion/error callback.
 
         Fetches logs if the task was successful.
@@ -439,10 +494,12 @@ class PipelineLifecycleManager:
             logs: str = self._fetch_pipeline_logs()
             payload["message"] = logs
             if self.debug:
-                self.log.debug(f"Pipeline logs being sent in callback:\n{logs[:500]}...") # Log snippet
+                self.log.debug(
+                    f"Pipeline logs being sent in callback:\n{logs[:500]}..."
+                )  # Log snippet
         else:
-             # Should not happen if error_message is empty and task failed, but handle defensively
-             payload["message"] = "Pipeline failed with unspecified error."
+            # Should not happen if error_message is empty and task failed, but handle defensively
+            payload["message"] = "Pipeline failed with unspecified error."
 
         # Use the injected callback notifier function
         self.callback_notifier(callback_url, payload, self.log, self.debug)
@@ -472,7 +529,7 @@ def create_app(
     validator: PipelineConfigValidator,
     api_key: str | None,
     logger: logging.Logger,
-    debug: bool = False
+    debug: bool = False,
 ) -> Flask:
     """Create and configure the Flask application instance.
 
@@ -493,17 +550,17 @@ def create_app(
     :rtype: Flask
     """
     app: Flask = Flask(__name__)
-    app.config["DEBUG"] = debug # Set Flask debug mode if requested
+    app.config["DEBUG"] = debug  # Set Flask debug mode if requested
 
     @app.route("/status", methods=["GET"])
-    def status() -> tuple[Response, int]:  # pyright: ignore[reportUnusedFunction]
+    def status() -> tuple[Response, int]:
         """Endpoint to check the status of the pipeline manager."""
         logger.debug("Status endpoint called")
         current_status: dict[str, Any] = pipeline_manager.get_status()
         return jsonify(current_status), 200
 
     @app.route("/run", methods=["POST"])
-    def run_pipeline() -> tuple[Response, int]:  # pyright: ignore[reportUnusedFunction]
+    def run_pipeline() -> tuple[Response, int]:
         """Endpoint to trigger the transcription pipeline execution."""
         logger.info("Run endpoint called")
 
@@ -514,26 +571,52 @@ def create_app(
         data: dict[str, Any] | None = request.get_json()
         if data is None:
             logger.error("Failed to get JSON data from request")
-            return jsonify({"success": False, "message": "Failed to parse JSON data"}), 400
+            return (
+                jsonify({"success": False, "message": "Failed to parse JSON data"}),
+                400,
+            )
 
-        logger.debug(f"Received run request: {data}")
+        logger.debug("Received pipeline run request")
 
         try:
             pipeline_kwargs, callback_url = validator.validate(data, api_key)
-            started: bool = pipeline_manager.start_pipeline(pipeline_kwargs, callback_url)
+            started: bool = pipeline_manager.start_pipeline(
+                pipeline_kwargs, callback_url
+            )
             if started:
                 logger.info("Pipeline accepted for processing.")
-                return jsonify({"success": True, "message": "Transcription pipeline accepted for processing."}), 202
+                return (
+                    jsonify(
+                        {
+                            "success": True,
+                            "message": "Transcription pipeline accepted for processing.",
+                        }
+                    ),
+                    202,
+                )
             else:
-                logger.warning("Pipeline start requested, but manager reported it's already running or failed to start.")
-                return jsonify({"success": False, "message": "Pipeline run has already been triggered or failed to start."}), 409
+                logger.warning(
+                    "Pipeline start requested, but manager reported it's already running or failed to start."
+                )
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "message": "Pipeline run has already been triggered or failed to start.",
+                        }
+                    ),
+                    409,
+                )
         except ValueError as ve:
             logger.error(f"Validation error processing run request: {ve}")
             return jsonify({"success": False, "message": str(ve)}), 400
         except Exception as e:
-            message: str = f"An unexpected error occurred processing the run request: {e}"
+            message: str = (
+                f"An unexpected error occurred processing the run request: {e}"
+            )
             logger.error(message, exc_info=debug)
             return jsonify({"success": False, "message": message}), 500
+
     return app
 
 
@@ -543,12 +626,20 @@ def parse_arguments() -> argparse.Namespace:
     :return: Parsed command-line arguments.
     :rtype: argparse.Namespace
     """
-    parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Run the Transcription REST Interface.")
-    parser.add_argument(
-        "--host", type=str, default=DEFAULT_REST_HOST, help="Host to bind the server to, default: %(default)s"
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        description="Run the Transcription REST Interface."
     )
     parser.add_argument(
-        "--port", type=int, default=DEFAULT_REST_PORT, help="Port to bind the server to, default: %(default)s"
+        "--host",
+        type=str,
+        default=DEFAULT_REST_HOST,
+        help="Host to bind the server to, default: %(default)s",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_REST_PORT,
+        help="Port to bind the server to, default: %(default)s",
     )
     parser.add_argument(
         "--api-key",
@@ -556,7 +647,15 @@ def parse_arguments() -> argparse.Namespace:
         help="API key used to validate requests (also can be provided as TRANSCRIPTION_API_KEY environment variable)",
     )
     parser.add_argument(
-        "--debug", action="store_true", help="Enable Flask debug mode and verbose logging."
+        "--debug",
+        action="store_true",
+        help="Enable Flask debug mode and verbose logging.",
+    )
+    parser.add_argument(
+        "--backend", choices=("whisperx", "qwen3"), help="Assert the manifest backend"
+    )
+    parser.add_argument(
+        "--model-manifest", type=Path, help="Override the deployment manifest path"
     )
     return parser.parse_args()
 
@@ -565,7 +664,9 @@ def main() -> None:
     """Parse arguments, initialize the interface, and run the server."""
     args: argparse.Namespace = parse_arguments()
     api_key: str | None = args.api_key or os.environ.get("TRANSCRIPTION_API_KEY")
-    interface: TranscriptionRestInterface = TranscriptionRestInterface(debug=args.debug)
+    interface: TranscriptionRestInterface = TranscriptionRestInterface(
+        debug=args.debug, backend=args.backend, model_manifest=args.model_manifest
+    )
     interface.run_server(host=args.host, port=args.port, api_key=api_key)
 
 
@@ -574,3 +675,4 @@ if __name__ == "__main__":
         main()
     except Exception:
         print(traceback.format_exc())
+        sys.exit(1)

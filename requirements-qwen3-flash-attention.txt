@@ -1,0 +1,2 @@
+flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3.post2/flash_attn-2.8.3.post2%2Bcu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl --hash=sha256:61ab39b7038d6a05cb97664f3481a92ced300d11aa14529ae3b675300a99f5e6
+einops==0.8.2 --hash=sha256:54058201ac7087911181bfec4af6091bb59380360f069276601256a76af08193

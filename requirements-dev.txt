@@ -1,14 +1,14 @@
+basedpyright==1.40.2
 black==26.10.1
 flake8==7.5.0
 iniconfig==2.3.1
 mccabe==0.7.0
 mypy_extensions==1.1.0
-nodeenv==1.12.0
+nodejs-wheel-binaries==24.19.0
 pathspec==1.1.1
 pluggy==1.7.0
 pycodestyle==2.15.0
 pyflakes==4.1.0
-pyright==1.1.414
 pytest==9.2.0
 pytokens==0.4.1
 types-click==7.1.8

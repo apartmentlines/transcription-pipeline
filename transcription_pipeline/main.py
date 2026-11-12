@@ -1,14 +1,28 @@
-#!/usr/bin/env python3
+"""Manifest-selected transcription through the existing download framework."""
 
+from __future__ import annotations
+
+import logging
 import argparse
+import sys
 from pathlib import Path
-from typing import Optional, List
 from copy import deepcopy
-from download_pipeline_processor.processing_pipeline import (  # pyright: ignore[reportMissingImports]
+from dataclasses import replace
+from threading import Event
+from typing import Any, override
+
+from download_pipeline_processor.file_data import FileData
+from download_pipeline_processor.processing_pipeline import (
     ProcessingPipeline,
 )
-from download_pipeline_processor.logger import (  # pyright: ignore[reportMissingImports]
+from download_pipeline_processor.logger import (
     Logger,
+)
+
+from transcription_pipeline.constants import (
+    DEFAULT_DOWNLOAD_CACHE,
+    DEFAULT_DOWNLOAD_QUEUE_SIZE,
+    TRANSCRIPTION_STATE_READY,
 )
 from transcription_pipeline.processors.transcription_pre_processor import (
     TranscriptionPreProcessor,
@@ -25,27 +39,53 @@ from transcription_pipeline.utils import (
     fail_hard,
 )
 from transcription_pipeline.config import load_configuration, set_environment_variables
-from transcription_pipeline.constants import (
-    DEFAULT_PROCESSING_LIMIT,
-    DEFAULT_DOWNLOAD_QUEUE_SIZE,
-    DEFAULT_DOWNLOAD_CACHE,
-    TRANSCRIPTION_STATE_READY,
-)
+from transcription_pipeline.deployment import Deployment, ManifestStore
+
+
+class TranscriptionProcessingPipeline(ProcessingPipeline):
+    """Keep the framework's failure path and clean its completed download files."""
+
+    @override
+    def process_file(self, file_data: FileData) -> None:
+        """Delegate processing and use framework cleanup on both outcome paths."""
+        try:
+            super().process_file(file_data)
+        finally:
+            self.delete_cached_download_file(file_data)
 
 
 class TranscriptionPipeline:
+    log: logging.Logger
+    api_key: str | None
+    domain: str | None
+    limit: int | None
+    min_id: int | None
+    max_id: int | None
+    deployment: Deployment
+    backend: str
+    processing_limit: int
+    download_queue_size: int
+    download_cache: Path
+    simulate_downloads: bool
+    debug: bool
+    initialization_failed: Event
+    pipeline: ProcessingPipeline
+
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        domain: Optional[str] = None,
-        limit: Optional[int] = None,
-        min_id: Optional[int] = None,
-        max_id: Optional[int] = None,
-        processing_limit: int = DEFAULT_PROCESSING_LIMIT,
+        api_key: str | None = None,
+        domain: str | None = None,
+        limit: int | None = None,
+        min_id: int | None = None,
+        max_id: int | None = None,
+        processing_limit: int | None = None,
         download_queue_size: int = DEFAULT_DOWNLOAD_QUEUE_SIZE,
         download_cache: Path = DEFAULT_DOWNLOAD_CACHE,
         simulate_downloads: bool = False,
         debug: bool = False,
+        backend: str | None = None,
+        model_manifest: Path | None = None,
+        deployment: Deployment | None = None,
     ) -> None:
         self.log = Logger(self.__class__.__name__, debug=debug)
         self.api_key = api_key
@@ -53,17 +93,29 @@ class TranscriptionPipeline:
         self.limit = limit
         self.min_id = min_id
         self.max_id = max_id
-        self.processing_limit = processing_limit
+        self.deployment = deployment or ManifestStore.load(model_manifest, backend)
+        if backend is not None:
+            self.deployment.assert_backend(backend)
+        self.backend = self.deployment.backend
+        self.log.info(self.deployment.description())
+        self.processing_limit = self.deployment.processing_limit(processing_limit)
+        self.deployment = replace(self.deployment, worker_count=self.processing_limit)
+        self.log.info(
+            f"Using backend={self.backend} with {self.processing_limit} workers"
+        )
         self.download_queue_size = download_queue_size
         self.download_cache = download_cache
         self.simulate_downloads = simulate_downloads
         self.debug = debug
+        self.initialization_failed = Event()
         self.pipeline = self._initialize_pipeline()
 
     def _initialize_pipeline(self) -> ProcessingPipeline:
-        return ProcessingPipeline(
+        return TranscriptionProcessingPipeline(
             pre_processor_class=TranscriptionPreProcessor,
-            processor_class=TranscriptionProcessor,
+            processor_class=TranscriptionProcessor.bind(
+                self.deployment, self.initialization_failed
+            ),
             post_processor_class=TranscriptionPostProcessor,
             processing_limit=self.processing_limit,
             download_queue_size=self.download_queue_size,
@@ -75,7 +127,7 @@ class TranscriptionPipeline:
     def build_retrieve_request_url(self) -> str:
         return f"https://{self.domain}/al/transcriptions/retrieve/operator-recordings/{TRANSCRIPTION_STATE_READY}"
 
-    def build_retrieve_request_params(self) -> dict:
+    def build_retrieve_request_params(self) -> dict[str, Any]:
         params = {"api_key": self.api_key}
         if self.limit is not None:
             params["limit"] = str(self.limit)
@@ -85,7 +137,7 @@ class TranscriptionPipeline:
             params["max_id"] = str(self.max_id)
         return params
 
-    def retrieve_file_data(self) -> List[dict] | None:
+    def retrieve_file_data(self) -> list[dict[str, Any]] | None:
         url = self.build_retrieve_request_url()
         try:
             params = self.build_retrieve_request_params()
@@ -105,7 +157,7 @@ class TranscriptionPipeline:
         except Exception as e:
             fail_hard(f"Error retrieving files: {e}")
 
-    def prepare_file_data(self, files: List[dict]) -> List[dict]:
+    def prepare_file_data(self, files: list[dict[str, Any]]) -> list[dict[str, Any]]:
         self.log.debug("Preparing file data with API key")
         for file in files:
             separator = "&" if "?" in file["url"] else "?"
@@ -119,17 +171,20 @@ class TranscriptionPipeline:
         set_environment_variables(self.api_key, self.domain)
         self.log.info("Configuration loaded successfully")
 
-    def run(self) -> None:
+    def run(self) -> int:
         self.log.info("Starting transcription pipeline")
         self.setup_configuration()
         files = self.retrieve_file_data()
         if not files:
             self.log.info("No files to process")
-            return
+            return 0
         files = self.prepare_file_data(files)
         self.log.info("Starting pipeline execution")
-        self.pipeline.run(files)
-        self.log.info("Transcription pipeline completed")
+        exit_code = self.pipeline.run(files)
+        if self.initialization_failed.is_set() and exit_code == 0:
+            exit_code = 1
+        self.log.info(f"Transcription pipeline completed with exit code {exit_code}")
+        return exit_code
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -162,8 +217,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--processing-limit",
         type=positive_int,
-        default=DEFAULT_PROCESSING_LIMIT,
-        help="Maximum concurrent processing threads, default %(default)s",
+        default=None,
+        help="Maximum concurrent processing threads; default resolved by backend",
     )
     parser.add_argument(
         "--download-queue-size",
@@ -181,6 +236,12 @@ def parse_arguments() -> argparse.Namespace:
         "--simulate-downloads",
         action="store_true",
         help="Simulate downloads instead of performing actual downloads",
+    )
+    parser.add_argument(
+        "--backend", choices=("whisperx", "qwen3"), help="Assert the manifest backend"
+    )
+    parser.add_argument(
+        "--model-manifest", type=Path, help="Override the deployment manifest path"
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     return parser.parse_args()
@@ -206,8 +267,10 @@ def main() -> None:
         download_cache=args.download_cache,
         simulate_downloads=args.simulate_downloads,
         debug=args.debug,
+        backend=args.backend,
+        model_manifest=args.model_manifest,
     )
-    pipeline.run()
+    sys.exit(pipeline.run())
 
 
 if __name__ == "__main__":

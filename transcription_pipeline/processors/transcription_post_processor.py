@@ -1,35 +1,46 @@
+"""Preserve application API updates and retry classification."""
+
+from __future__ import annotations
+
 import os
 import json
-import requests
 import traceback
-from download_pipeline_processor.processors.base_post_processor import (  # pyright: ignore[reportMissingImports]
+from typing import Any, override
+
+import requests
+from download_pipeline_processor.processors.base_post_processor import (
     BasePostProcessor,
 )
-from download_pipeline_processor.file_data import (  # pyright: ignore[reportMissingImports]
+from download_pipeline_processor.file_data import (
     FileData,
 )
-from download_pipeline_processor.error import (  # pyright: ignore[reportMissingImports]
+from download_pipeline_processor.error import (
     TransientPipelineError,
 )
-from transcription_pipeline.transcriber import TranscriptionError
-from transcription_pipeline.utils import post_request
 
-from ..constants import (
+from transcription_pipeline.constants import (
     TRANSCRIPTION_STATE_ACTIVE,
 )
+from transcription_pipeline.errors import TranscriptionError
+from transcription_pipeline.utils import post_request
 
 
 class TranscriptionPostProcessor(BasePostProcessor):
+    api_key: str | None
+    domain: str | None
+
     def __init__(self, debug: bool = False):
         super().__init__(debug=debug)
         self.api_key = os.environ.get("TRANSCRIPTION_API_KEY")
         self.domain = os.environ.get("TRANSCRIPTION_DOMAIN")
 
     def is_transient_download_error(self, file_data: FileData) -> bool:
-        if file_data.error.stage == "download":
+        if file_data.error is not None and file_data.error.stage == "download":
             error = file_data.error.error
             if isinstance(error, requests.exceptions.HTTPError):
-                status_code = error.response.status_code
+                status_code = (
+                    error.response.status_code if error.response is not None else 0
+                )
                 return status_code == 429 or (500 <= status_code < 600)
             return isinstance(
                 error,
@@ -44,14 +55,15 @@ class TranscriptionPostProcessor(BasePostProcessor):
         return False
 
     def is_transient_processing_error(self, file_data: FileData) -> bool:
-        if file_data.error.stage == "process":
+        if file_data.error is not None and file_data.error.stage == "process":
             error = file_data.error.error
             if isinstance(error, TranscriptionError):
                 return error.is_transient_error()
             return True
         return False
 
-    def post_process(self, result: dict, file_data: FileData) -> None:
+    @override
+    def post_process(self, result: dict[str, Any], file_data: FileData) -> None:
         url = self.build_update_url()
         result_state = self.determine_result_state(result, file_data)
         data = self.format_request_payload(result_state)
@@ -62,8 +74,10 @@ class TranscriptionPostProcessor(BasePostProcessor):
             self.log.error(f"Failed to post-process result for ID {file_data.id}: {e}")
             traceback.print_exc()
 
-    def determine_result_state(self, result: dict, file_data: FileData) -> dict:
-        if file_data.has_error:
+    def determine_result_state(
+        self, result: dict[str, Any], file_data: FileData
+    ) -> dict[str, Any]:
+        if file_data.error is not None:
             self.log.warning(
                 f"Processing failed in stage '{file_data.error.stage}' with error: {file_data.error.error}"
             )
@@ -96,7 +110,7 @@ class TranscriptionPostProcessor(BasePostProcessor):
                 }
         return result
 
-    def format_request_payload(self, result: dict) -> dict:
+    def format_request_payload(self, result: dict[str, Any]) -> dict[str, Any]:
         metadata = result.get("metadata", {})
         data = {
             "api_key": self.api_key,
@@ -112,7 +126,9 @@ class TranscriptionPostProcessor(BasePostProcessor):
     def build_update_url(self) -> str:
         return f"https://{self.domain}/al/transcriptions/update/operator-recording"
 
-    def handle_response(self, response, result) -> None:
+    def handle_response(
+        self, response: requests.Response, result: dict[str, Any]
+    ) -> None:
         resp_json = response.json()
         if resp_json.get("success"):
             self.log.info(

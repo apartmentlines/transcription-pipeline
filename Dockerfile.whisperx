@@ -12,7 +12,8 @@ FROM ${BASE_IMAGE} AS runtime-base
 ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu \
     PATH=/opt/venv/bin:${PATH} \
     HF_HOME=/opt/models/huggingface \
-    TORCH_HOME=/opt/models/torch
+    TORCH_HOME=/opt/models/torch \
+    NLTK_DATA=/opt/models/nltk
 COPY --from=repository-key /nvidia-cuda.gpg /usr/share/keyrings/nvidia-cuda.gpg
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl ffmpeg openssh-server procps \
@@ -28,9 +29,9 @@ FROM runtime-base AS dependencies-build
 RUN apt-get update && apt-get install -y --no-install-recommends gcc git \
     && rm -rf /var/lib/apt/lists/*
 RUN python -m venv /opt/venv
-COPY requirements-frozen.txt /tmp/requirements-frozen.txt
+COPY requirements-whisperx-frozen.txt /tmp/requirements-whisperx-frozen.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install -r /tmp/requirements-frozen.txt \
+    python -m pip install -r /tmp/requirements-whisperx-frozen.txt \
     && python -m pip check
 
 FROM runtime-base AS dependencies
@@ -38,14 +39,18 @@ COPY --from=dependencies-build /opt/venv /opt/venv
 
 FROM dependencies AS models
 WORKDIR /model-seeding
-COPY transcription_pipeline/constants.py transcription_pipeline/seed_models.py ./transcription_pipeline/
-RUN python -m transcription_pipeline.seed_models \
-    --device cpu --compute-type int8 --skip-diarization
-RUN python -m nltk.downloader --dir /opt/models/nltk --exit-on-error punkt_tab \
-    && rm /opt/models/nltk/tokenizers/punkt_tab.zip
+COPY transcription_pipeline/__init__.py transcription_pipeline/constants.py transcription_pipeline/deployment.py transcription_pipeline/errors.py transcription_pipeline/model_seeding.py transcription_pipeline/seed_models.py ./transcription_pipeline/
+COPY transcription_pipeline/backends/__init__.py transcription_pipeline/backends/whisperx_seed.py ./transcription_pipeline/backends/
+RUN --mount=type=cache,target=/var/cache/transcription-models-whisperx,sharing=locked \
+    HF_HOME=/var/cache/transcription-models-whisperx/huggingface \
+    TORCH_HOME=/var/cache/transcription-models-whisperx/torch \
+    NLTK_DATA=/var/cache/transcription-models-whisperx/nltk \
+    python -m transcription_pipeline.seed_models --backend whisperx \
+    && mkdir -p /opt/models \
+    && cp -a /var/cache/transcription-models-whisperx/. /opt/models/
 
 FROM dependencies AS application
-ENV NLTK_DATA=/opt/models/nltk
+ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 COPY --from=models /opt/models /opt/models
 WORKDIR /usr/src/transcription-pipeline
 COPY pyproject.toml README.md LICENSE ./
@@ -59,8 +64,9 @@ RUN printf '%s\n' \
     'export HF_HOME=${HF_HOME:-/opt/models/huggingface}' \
     'export TORCH_HOME=${TORCH_HOME:-/opt/models/torch}' \
     'export NLTK_DATA=${NLTK_DATA:-/opt/models/nltk}' \
+    'export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1' \
     > /etc/profile.d/transcription-venv.sh
-CMD ["transcription-processor", "--limit", "1000", "--processing-limit", "2"]
+CMD ["transcription-processor", "--limit", "1000"]
 
 FROM application AS development
 RUN apt-get update && apt-get install -y --no-install-recommends gcc git \

@@ -1,0 +1,16 @@
+services:
+  transcription-local-service:
+    image: apartmentlinesproduction/transcription-pipeline-qwen3:v0.1.0
+    environment:
+      TRANSCRIPTION_API_KEY: ${TRANSCRIPTION_API_KEY}
+      TRANSCRIPTION_DOMAIN: ${TRANSCRIPTION_DOMAIN}
+    command: ["transcription-processor", "--limit", "1000"]
+    volumes:
+      - .:/usr/src/transcription-pipeline
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

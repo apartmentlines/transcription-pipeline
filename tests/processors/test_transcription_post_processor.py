@@ -1,15 +1,22 @@
+"""External transcription updates and retryable processing failures."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+import os
+from unittest.mock import patch, Mock
+
 import pytest
 import requests
-import os
-
-from unittest.mock import patch, Mock
-from download_pipeline_processor.error import (  # pyright: ignore[reportMissingImports]
+from download_pipeline_processor.error import (
     TransientPipelineError,
 )
-from download_pipeline_processor.file_data import (  # pyright: ignore[reportMissingImports]
+from download_pipeline_processor.file_data import (
     FileData,
 )
-from transcription_pipeline.transcriber import TranscriptionError
+
+from transcription_pipeline.results import TranscriptionResult
+from transcription_pipeline.errors import TranscriptionError
 from transcription_pipeline.processors.transcription_post_processor import (
     TranscriptionPostProcessor,
 )
@@ -27,7 +34,7 @@ def test_transcription_post_processor_instantiation():
 
 @patch("transcription_pipeline.processors.transcription_post_processor.post_request")
 def test_transcription_post_processor_post_process_success(
-    mock_post_request, file_data
+    mock_post_request: MagicMock, file_data: FileData
 ):
     mock_response = Mock()
     mock_response.json.return_value = {"success": True}
@@ -50,7 +57,7 @@ def test_transcription_post_processor_post_process_success(
 
 @patch("transcription_pipeline.processors.transcription_post_processor.post_request")
 def test_transcription_post_processor_post_process_failure(
-    mock_post_request, file_data
+    mock_post_request: MagicMock, file_data: FileData
 ):
     mock_post_request.side_effect = Exception("Post request failed")
     processor = TranscriptionPostProcessor()
@@ -64,7 +71,9 @@ def test_transcription_post_processor_post_process_failure(
 
 
 @patch("transcription_pipeline.processors.transcription_post_processor.post_request")
-def test_post_process_error_state_flow(mock_post_request, file_data):
+def test_post_process_error_state_flow(
+    mock_post_request: MagicMock, file_data: FileData
+):
     """Test that post_process correctly handles and transforms error states"""
     mock_response = Mock()
     mock_response.json.return_value = {"success": True}
@@ -88,11 +97,11 @@ def test_post_process_error_state_flow(mock_post_request, file_data):
         # Verify handle_response received the error state
         called_result = mock_handle_response.call_args[0][1]
         assert called_result["success"] is False
-        assert called_result["metadata"]["error"] == f"Transcription error: {error_msg}"
+        assert called_result["metadata"]["error"] == str(TranscriptionError(error_msg))
         assert called_result["metadata"]["error_stage"] == "process"
 
 
-def test_determine_result_state_success(file_data):
+def test_determine_result_state_success(file_data: FileData):
     processor = TranscriptionPostProcessor()
     result = {
         "id": "123",
@@ -104,14 +113,14 @@ def test_determine_result_state_success(file_data):
     assert state == result
 
 
-def test_determine_result_state_with_file_data_error(file_data):
+def test_determine_result_state_with_file_data_error(file_data: FileData):
     processor = TranscriptionPostProcessor()
     result = {
         "id": "123",
         "success": True,
     }
     error_msg = "Download failed"
-    file_data.add_error("download", error_msg)
+    file_data.add_error("download", RuntimeError(error_msg))
 
     result_state = processor.determine_result_state(result, file_data)
     assert result_state == {
@@ -121,7 +130,7 @@ def test_determine_result_state_with_file_data_error(file_data):
     }
 
 
-def test_determine_result_state_with_missing_transcription_error(file_data):
+def test_determine_result_state_with_missing_transcription_error(file_data: FileData):
     processor = TranscriptionPostProcessor()
     result = {
         "id": "123",
@@ -221,20 +230,21 @@ def test_handle_response_failure():
     processor.handle_response(mock_response, result)
 
 
-def test_is_transient_download_error(file_data):
+def test_is_transient_download_error(file_data: FileData):
     processor = TranscriptionPostProcessor()
     http_error = requests.exceptions.HTTPError()
-    http_error.response = type("Response", (), {"status_code": None})
+    response = requests.Response()
+    http_error.response = response
 
     transient_status_codes = [429, 500, 502, 503, 504, 599]
     for status_code in transient_status_codes:
-        http_error.response.status_code = status_code
+        response.status_code = status_code
         file_data.add_error("download", http_error)
         assert processor.is_transient_download_error(file_data) is True
 
     non_transient_status_codes = [400, 401, 403, 404, 422]
     for status_code in non_transient_status_codes:
-        http_error.response.status_code = status_code
+        response.status_code = status_code
         file_data.add_error("download", http_error)
         assert processor.is_transient_download_error(file_data) is False
 
@@ -267,7 +277,7 @@ def test_is_transient_download_error(file_data):
     assert processor.is_transient_download_error(file_data) is False
 
 
-def test_is_transient_processing_error(file_data):
+def test_is_transient_processing_error(file_data: FileData):
     processor = TranscriptionPostProcessor()
 
     # Test GPU-related TranscriptionError (should be transient)
@@ -318,6 +328,7 @@ def test_determine_result_state_transient_error():
         id="123", name="test_file", url="http://example.com/file"
     )
     non_transient_file.add_error("process", TranscriptionError("Invalid audio format"))
+    assert non_transient_file.error is not None
     result_state = processor.determine_result_state(result, non_transient_file)
     assert result_state == {
         "id": non_transient_file.id,
@@ -327,3 +338,38 @@ def test_determine_result_state_transient_error():
             "error": str(non_transient_file.error.error),
         },
     }
+
+
+def test_retranscription_metadata_replaces_prior_confidence_and_languages(
+    sample_transcription_result: TranscriptionResult,
+):
+    """Exercise the PHP merge operation used by TRANSCRIPTION_DOMAIN."""
+    import json
+    import shutil
+    import subprocess
+    from dataclasses import replace
+
+    if shutil.which("php") is None:
+        pytest.skip("PHP is unavailable for the external metadata merge check")
+    result = replace(sample_transcription_result, backend="qwen3")
+    metadata = result.metadata(1)
+    processor = TranscriptionPostProcessor()
+    payload = processor.format_request_payload(
+        {
+            "id": "123",
+            "success": True,
+            "transcription": "subtitles",
+            "metadata": metadata,
+        }
+    )
+    code = '$new=json_decode(stream_get_contents(STDIN),true); $old=["average_word_confidence"=>0.98,"detected_languages"=>["en","es"]]; echo json_encode(array_replace_recursive($old,$new));'
+    merged = subprocess.run(
+        ["php", "-r", code],
+        input=payload["metadata"],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    decoded = json.loads(merged.stdout)
+    assert decoded["average_word_confidence"] is None
+    assert decoded["detected_languages"] == "en"

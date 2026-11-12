@@ -1,109 +1,116 @@
 # Transcription Pipeline
 
-A processing pipeline for transcribing audio files and handling post-processing tasks. This package leverages the [download-pipeline-processor](https://github.com/apartmentlines/download-pipeline-processor) framework to manage the downloading, processing, and post-processing of audio files.
-
-## Features
-
-- Concurrent processing of audio files.
-- Configurable download queue and processing limits.
-- Retry logic with exponential backoff for network requests.
-- Customizable logging with debug support.
-- Environment variable and command-line argument configurations.
+Transcribe English and Spanish recordings with WhisperX or Qwen3 ASR and forced alignment. Uses [download-pipeline-processor](https://github.com/apartmentlines/download-pipeline-processor) to download recordings, process them concurrently, and submit subtitles to the configured API.
 
 ## Requirements
 
-- Python 3.12 or later.
-- [download-pipeline-processor](https://github.com/apartmentlines/download-pipeline-processor) package
+- Python 3.12 for Qwen; Python 3.13 for the frozen WhisperX dependencies.
+- FFmpeg and an NVIDIA GPU for transcription.
+- Docker with NVIDIA Container Toolkit for container execution.
 
 ## Installation
 
-Ensure [download-pipeline-processor](https://github.com/apartmentlines/download-pipeline-processor) package is installed locally.
+Use a separate virtual environment for each backend. For WhisperX:
 
 ```bash
-pip install -e .
-
-# ...or for development...
-pip install -e ".[dev]"
+pip install -r requirements-whisperx-frozen.txt
+pip install --no-deps -e .
+seed-models --backend whisperx
 ```
+
+For Qwen, use `requirements-qwen3-frozen.txt` and `seed-models --backend qwen3` instead. Seeding downloads models without requiring a GPU; Docker builds already do this.
 
 ## Usage
 
-### Running the pipeline directly
-
-Can be run as a command-line script or integrated into other Python applications.
-
-Run `seed-models` before first use; Docker builds already do this. Runtime loading of Whisper and Hugging Face alignment models uses only cached files and fails if the required files are missing.
-
-#### Command-Line Usage
-
-Run the pipeline by executing the `transcription-processor` script:
-
-```bash
-transcription-processor [OPTIONS]
-```
-
-**Options**
-
-Run with the `--help` arg for a list of all CLI options.
-
-**Example**
+### Running the pipeline
 
 ```bash
 transcription-processor --api-key YOUR_API_KEY --domain example.com --debug
 ```
 
-#### Environment Variables
+Alternatively, set `TRANSCRIPTION_API_KEY` and `TRANSCRIPTION_DOMAIN`. Use `--help` for all options, including download and processing limits.
 
-You can set the following environment variables instead of providing command-line arguments:
+The seeded manifest selects the backend automatically. Runtime uses cached models and fails if required assets are missing. An optional `--backend` checks that the installation matches the requested backend.
 
-- `TRANSCRIPTION_API_KEY`
-- `TRANSCRIPTION_DOMAIN`
+### Transcribing a local file
+
+```bash
+transcriber recording.wav --output-dir ./output
+```
+
+Produces SRT; use `--output-format vtt` for WebVTT. `--community` and `--terminology` add recording-specific context.
 
 ### Docker
 
-Run from the repo root with `TRANSCRIPTION_API_KEY` and `TRANSCRIPTION_DOMAIN` set in your shell or `.env`. Local execution requires Docker GPU support for an NVIDIA GPU.
+Run from the repository root with `TRANSCRIPTION_API_KEY` and `TRANSCRIPTION_DOMAIN` set in your shell or `.env`. Builds download dependencies and models without requiring a GPU.
 
-Build and push the prepared image to `apartmentlinesproduction/transcription-pipeline:v0.1.0` (requires repository push access):
+Build and run WhisperX:
+
+```bash
+./setup.sh -b whisperx
+./dev.sh -b whisperx
+```
+
+Build and run Qwen:
+
+```bash
+./setup.sh -b qwen3
+./dev.sh -b qwen3
+```
+
+All three wrappers (`setup.sh`, `dev.sh`, `test.sh`) accept `-b whisperx|qwen3`, defaulting to WhisperX. Put wrapper options first; remaining arguments go to Compose. For build flags, use `./setup.sh -b qwen3 -- --no-cache`. Backend projects and test images are isolated.
+
+To use the published WhisperX image:
+
+```bash
+docker compose -f docker-compose.whisperx.local.yaml pull
+docker compose -f docker-compose.whisperx.local.yaml up
+```
+
+To use the published Qwen image:
+
+```bash
+docker compose -f docker-compose.qwen3.local.yaml pull
+docker compose -f docker-compose.qwen3.local.yaml up
+```
+
+Override the command for an ad hoc run:
+
+```bash
+docker compose -f docker-compose.whisperx.local.yaml \
+  run --rm transcription-local-service transcription-processor --limit 1
+```
+
+Build and publish backend images (requires repository push access):
 
 ```bash
 docker login
-./dockerhub-build.sh
+./dockerhub-build.sh -b whisperx -t v0.1.0 -p
+./dockerhub-build.sh -b qwen3 -t v0.1.0 -p
 ```
 
-The multi-stage build installs runtime dependencies and seeds Whisper, English/Spanish alignment models and NLTK tokenizer data on CPU; building requires no GPU. Dependencies and model data are cached independently of application code. The final image includes the model data, SSH and `runpodctl`, but excludes compiler and test tooling. Optional speaker-diarization weights are not seeded.
+Images use `apartmentlinesproduction/transcription-pipeline-whisperx` and `apartmentlinesproduction/transcription-pipeline-qwen3`. Omit `-p` to build without publishing.
 
-For a local build without publishing, run `./setup.sh` (or `docker compose build`), then `docker compose up`. No setup container or `docker commit` is needed. Pip downloads use a BuildKit cache.
-
-Run the prepared image locally:
-
-```bash
-# Pull when using another machine or refreshing an older local image.
-docker compose -f docker-compose.local.yaml pull
-docker compose -f docker-compose.local.yaml up
-```
-
-For an ad hoc run, override the command without editing the Compose file:
-
-```bash
-docker compose -f docker-compose.local.yaml \
-  run --rm transcription-local-service \
-  transcription-processor --limit 1
-```
-
-`run` creates a new container from the prepared image; `--rm` removes it afterward. The supplied command replaces the entire default command.
+See the [deployment guide](docs/deployment.md) for FlashAttention, supported GPUs and MIG, cache configuration, REST/RunPod, and troubleshooting.
 
 ## Development
 
-### Running Tests
+After installing the selected backend's dependencies:
 
 ```bash
-pip install -r requirements-frozen.txt -r requirements-dev.txt
-pytest
+pip install -r requirements-dev.txt
+pytest -q
+basedpyright
+flake8 --config ~/.flake8 transcription_pipeline tests
+basht tests/shell/dockerhub-build.bash
+basht tests/shell/compose.bash
 ```
 
-To test inside Docker with the development target:
+The ordinary tests require neither a GPU nor downloaded models. To test in a backend's development image (substitute `whisperx` as needed):
 
 ```bash
-./test.sh build
-./test.sh run --rm transcription-processor pytest
+./test.sh -b qwen3 build
+./test.sh -b qwen3 run --rm transcription-processor pytest
 ```
+
+See [deployment checks](docs/deployment.md#deployment-checks) for offline image smoke tests and optional GPU tests.

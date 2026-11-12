@@ -7,7 +7,7 @@ x-shared-volumes: &shared-volumes
 
 x-build: &default_build
   context: .
-  dockerfile: Dockerfile
+  dockerfile: Dockerfile.whisperx
   target: runtime
   args:
     BASE_IMAGE: *default_python_image
@@ -21,7 +21,7 @@ x-secrets-environment: &secrets_environment
   TRANSCRIPTION_API_KEY: ${TRANSCRIPTION_API_KEY}
   TRANSCRIPTION_DOMAIN: ${TRANSCRIPTION_DOMAIN}
 
-x-command: &default_command [ "transcription-processor", "--limit", "1000", "--processing-limit", "2" ]
+x-command: &default_command [ "transcription-processor", "--limit", "1000" ]
 
 services:
   transcription-processor:
