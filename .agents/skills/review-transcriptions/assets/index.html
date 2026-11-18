@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transcript review</title>
+  <link rel="stylesheet" href="review.css">
+  <script defer src="data.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="review-header">
+    <a class="brand" href="#main">Transcript review</a>
+    <label class="reviewer">Your name <input id="reviewer" autocomplete="name" placeholder="Reviewer name"></label>
+    <div class="save-info"><span id="progress">Loading recordings…</span><span id="save-status" role="status">Opening browser draft…</span></div>
+    <button id="download" class="primary" disabled>Download feedback</button>
+    <details id="files" class="files"><summary>Files</summary><div class="menu">
+      <button id="resume">Resume from feedback file</button>
+      <button id="separate">Keep as separate draft</button>
+      <button id="saved-drafts">Open a saved browser draft</button>
+    </div></details>
+    <input id="file-input" type="file" accept=".html,.json" hidden>
+  </header>
+  <div id="message" role="alert" hidden></div>
+  <div id="completion-message" role="status" hidden>Review completed. You can continue to the next recording or download your feedback.</div>
+  <dialog id="draft-picker"><h2>Saved browser drafts</h2><p>Choose a draft for this reference revision.</p><select id="draft-choice" aria-label="Saved draft"></select><p><button id="open-draft" class="primary">Open draft</button> <button id="cancel-picker">Cancel</button></p></dialog>
+  <main id="main">
+    <section class="intro">
+      <p class="eyebrow">LISTEN · CORRECT · REVIEW</p>
+      <h1>Keep the words faithful to the call.</h1>
+      <p>Listen through the recording. Correct what was said in its original language, including repetitions.
+        Split a passage only when it contains both speakers. You do not need to name speakers or match subtitle timing.</p>
+      <details><summary>A few review tips</summary><p>Play a passage with its time button to hear two seconds of context before it; playback continues normally.
+        Mark uncertainty instead of guessing. To separate two speakers, put the text cursor where the voice changes and choose <strong>Split at cursor</strong>.
+        Mark <strong>Speaker changes here</strong> if a change already falls between passages. Other passage breaks do not matter.
+        Saving keeps a draft in this browser; download feedback to keep a portable copy.</p></details>
+    </section>
+    <section class="recording-bar" aria-label="Recording navigation">
+      <button id="previous" aria-label="Previous recording">← Previous</button>
+      <label>Recording <select id="recording"></select></label>
+      <button id="next" aria-label="Next recording">Next →</button>
+    </section>
+    <section class="player" aria-label="Audio player">
+      <div class="player-heading"><h2 id="call-title">Loading…</h2><span id="call-status" class="badge">Unreviewed</span></div>
+      <audio id="audio" controls preload="metadata"></audio>
+      <div class="playback-tools">
+        <button id="replay">↶ Replay 5 seconds</button>
+        <label>Speed <select id="speed"><option value="0.65">0.65×</option><option value="0.8">0.8×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option></select></label>
+        <span id="audio-position">0:00</span>
+        <span class="muted">Approximate passage times · full audio available</span>
+      </div>
+    </section>
+    <section class="transcript-section" aria-label="Editable transcript">
+      <div class="section-heading"><h2>Transcript</h2><span id="passage-count"></span></div>
+      <div id="passages"></div>
+      <button id="add-end">+ Add missing speech at end</button>
+    </section>
+    <section class="completion" aria-label="Complete this recording">
+      <label for="notes">Notes for this recording <span class="muted">(optional)</span></label>
+      <textarea id="notes" rows="3" placeholder="Anything the next reviewer should know"></textarea>
+      <label class="attestation"><input type="checkbox" id="listened"> I listened through this recording and checked the words and speaker changes.</label>
+      <div class="completion-actions">
+        <button id="complete" class="primary">Complete review</button>
+        <button id="complete-unresolved">Complete with unresolved passages</button>
+        <button id="reopen" hidden>Reopen review</button>
+      </div>
+      <p class="muted">Completion is your explicit review decision. Listening or opening a recording does not mark it reviewed.</p>
+    </section>
+    <details id="evidence" class="evidence"><summary>Reference notes and alternative transcripts</summary><div id="evidence-content"></div></details>
+    <footer>Draft references are AI assisted and await human review. Your feedback revises the reference only after explicit reconciliation.</footer>
+  </main>
+</body>
+</html>

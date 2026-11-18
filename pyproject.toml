@@ -44,3 +44,4 @@ dev = [
     "basedpyright",
     "types-Flask",
 ]
+review-dev = ["playwright"]

@@ -38,10 +38,12 @@ Qwen uses one vLLM ASR engine with FlashAttention and one Transformers aligner w
 
 ```bash
 docker build -f Dockerfile.qwen3 --target runtime -t transcription-pipeline-qwen3:shared-engine .
+mkdir -p test-data/transcriptions
 docker run --rm --gpus all --ipc=host \
-  -v "${PWD}/audio-files:/data" \
+  -v "${HOME}/git/apartmentlines/testing-references/audio/operator-recordings:/data:ro" \
+  -v "${PWD}/test-data/transcriptions:/output" \
   transcription-pipeline-qwen3:shared-engine \
-  transcriber /data/first.wav /data/second.wav --output-dir /data --debug-output
+  transcriber /data/first.wav /data/second.wav --output-dir /output --debug-output
 ```
 
 For direct installation, use Python 3.12, FFmpeg, GCC/G++, and the pinned `requirements-qwen3-frozen.txt`, then install the project and run `seed-models --backend qwen3` as shown in the README.
@@ -50,7 +52,7 @@ For direct installation, use Python 3.12, FFmpeg, GCC/G++, and the pinned `requi
 |---|---|---|
 | `--processing-limit` | `TRANSCRIPTION_PROCESSING_LIMIT` | 4 simultaneous recordings |
 | `--qwen-batch-size` | `TRANSCRIPTION_QWEN_BATCH_SIZE` | 16 active audio chunks |
-| `--qwen-chunk-seconds` | `TRANSCRIPTION_QWEN_CHUNK_SECONDS` | 30 seconds (allowed: 1–90) |
+| `--qwen-chunk-seconds` | `TRANSCRIPTION_QWEN_CHUNK_SECONDS` | 45 seconds (allowed: 1–90) |
 
 These options work with both `transcriber` and `transcription-processor`. Explicit options override environment defaults. REST `/run` accepts `processing_limit`, `qwen_batch_size`, and `qwen_chunk_seconds` with the same meanings. Each recording retains its own context and output. WhisperX still owns a separate model per worker and defaults to three workers.
 

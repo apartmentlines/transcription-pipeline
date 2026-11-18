@@ -253,7 +253,7 @@ def aligned_word(
     return [AlignmentToken(text, offset, offset + 1)]
 
 
-@pytest.mark.parametrize("seconds", [1, 30, 60, 90])
+@pytest.mark.parametrize("seconds", [1, 30, 45, 60, 90])
 def test_configured_chunks_cover_every_sample_without_truncation(seconds: int) -> None:
     waveform = np.ones(181 * QWEN_SAMPLE_RATE + 17, dtype=np.float32)
     waveform[(seconds - 1) * QWEN_SAMPLE_RATE : seconds * QWEN_SAMPLE_RATE] = 0
@@ -325,8 +325,11 @@ def test_retry_replaces_neighbor_window_without_duplicate_text_or_timing(
     qwen: Any, monkeypatch: pytest.MonkeyPatch, failed_index: int
 ) -> None:
     backend, _, _ = qwen
-    waveform = np.zeros(65 * QWEN_SAMPLE_RATE, dtype=np.float32)
-    chunks = AudioChunker.ranges(waveform)
+    waveform = np.zeros(
+        (2 * backend.deployment.qwen_chunk_seconds + 5) * QWEN_SAMPLE_RATE,
+        dtype=np.float32,
+    )
+    chunks = AudioChunker.ranges(waveform, backend.deployment.qwen_chunk_seconds)
     monkeypatch.setattr(AudioChunker, "decode", Mock(return_value=waveform))
     original = [
         completion(f"Original{i}", "length" if i == failed_index else "stop")

@@ -16,3 +16,4 @@ dist
 *.log
 authorized_keys
 .ssh
+test-data/

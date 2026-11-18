@@ -38,7 +38,7 @@ The seeded manifest selects the backend automatically. Runtime uses cached model
 transcriber recording.wav --output-dir ./output
 ```
 
-Pass multiple audio paths to share the Qwen engine across recordings. `--processing-limit`, `--qwen-batch-size`, and `--qwen-chunk-seconds` default to 4, 16, and 30 for Qwen and also work with `transcription-processor`; see the [configuration table](docs/deployment.md#qwen-shared-engine).
+Pass multiple audio paths to share the Qwen engine across recordings. `--processing-limit`, `--qwen-batch-size`, and `--qwen-chunk-seconds` default to 4, 16, and 45 for Qwen and also work with `transcription-processor`; see the [configuration table](docs/deployment.md#qwen-shared-engine).
 
 Produces SRT; use `--output-format vtt` for WebVTT. `--community` and `--terminology` add recording-specific context.
 
@@ -116,3 +116,16 @@ The ordinary tests require neither a GPU nor downloaded models. To test in a bac
 ```
 
 See [deployment checks](docs/deployment.md#deployment-checks) for offline image smoke tests and optional GPU tests.
+
+For audio-reference review and backend quality evaluation, invoke
+[`$review-transcriptions`](.agents/skills/review-transcriptions/SKILL.md), or run
+`python .agents/skills/review-transcriptions/scripts/review.py --help`.
+Stable references live in `~/git/apartmentlines/testing-references/`: audio in
+`audio/operator-recordings/`, and corpus, SRTs, and referenced evidence in `transcription-pipeline/`.
+Generated sites and working artifacts stay in the ignored `test-data/` directory.
+Open `test-data/reference-framework/review-site/index.html` directly, or serve the
+whole folder over HTTP/HTTPS. The CLI supports `--audio-dir`, `--srt-dir`,
+`--corpus-dir`, `--evidence-dir`, and `--data-dir` overrides before the subcommand. Optional browser regression checks
+use `pip install -e '.[review-dev]'` followed by
+`python -m playwright install chromium`; the ordinary suite does not process the
+100-recording corpus.

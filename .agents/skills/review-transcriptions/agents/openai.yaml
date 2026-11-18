@@ -1,0 +1,7 @@
+interface:
+  display_name: "Transcription Reference Review"
+  short_description: "Review audio references and compare ASR outputs"
+  default_prompt: "Use $review-transcriptions to review feedback and evaluate transcription quality."
+
+policy:
+  allow_implicit_invocation: false

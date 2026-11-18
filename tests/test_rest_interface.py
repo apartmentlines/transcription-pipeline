@@ -89,7 +89,7 @@ def test_qwen_request_tuning_preserves_server_defaults(
     assert kwargs["deployment"].qwen_batch_size == 8
     assert kwargs["deployment"].qwen_chunk_seconds == 60
     assert validator.deployment is original
-    assert original.qwen_batch_size == 16 and original.qwen_chunk_seconds == 30
+    assert original.qwen_batch_size == 16 and original.qwen_chunk_seconds == 45
 
 
 @pytest.mark.parametrize("value", [True, 1.5, 0, 91])
