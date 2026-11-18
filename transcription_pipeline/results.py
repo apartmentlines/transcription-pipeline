@@ -1,20 +1,15 @@
-"""Canonical text spans, timing reconciliation, and external metadata."""
+"""Backend-neutral native timing and exact transcript text spans."""
 
 from __future__ import annotations
 
 import math
-import re
 import unicodedata
-from dataclasses import dataclass, field, replace
-from difflib import SequenceMatcher
-from typing import Any, Literal
+from dataclasses import dataclass, field
+from typing import Any
 
 from transcription_pipeline.constants import (
-    ALIGNMENT_MIN_CHARACTER_COVERAGE,
     DEFAULT_COMMUNITY,
     DEFAULT_TERMINOLOGY,
-    SOURCE_SPEECH_PAUSE_SECONDS,
-    SUSPICIOUS_GAP_SECONDS,
     TIMESTAMP_TOLERANCE,
     VALID_LANGUAGES,
 )
@@ -30,49 +25,43 @@ class TranscriptionContext:
 
 
 @dataclass(frozen=True)
-class TimedWord:
-    """One authoritative text span with observed or inferred timing.
-
-    Equal boundaries preserve a model's point observation; they do not imply
-    a positive display interval. Subtitle cues enforce that separate contract.
-    """
-
-    char_start: int
-    char_end: int
-    start: float
-    end: float
-    provenance: Literal["aligned", "inferred"] = "aligned"
-    speaker: str | None = None
-    score: float | None = None
-
-
-@dataclass(frozen=True)
-class SourceSegment:
-    """An estimated source speech range, possibly a point, before display layout."""
-
-    char_start: int
-    char_end: int
-    start: float
-    end: float
-    language: str
-    speaker: str | None = None
-
-
-@dataclass(frozen=True)
 class AlignmentToken:
-    """Backend alignment text used only for matching, never for rendering."""
+    """One native alignment item, including missing timestamps and confidence."""
 
     text: str
     start: float | None = None
     end: float | None = None
     speaker: str | None = None
     score: float | None = None
-    provenance: Literal["aligned", "inferred"] = "aligned"
+
+
+@dataclass(frozen=True)
+class TimedWord:
+    """A native alignment item mapped to original text without retiming it."""
+
+    char_start: int
+    char_end: int
+    start: float | None
+    end: float | None
+    speaker: str | None = None
+    score: float | None = None
+
+
+@dataclass(frozen=True)
+class SourceSegment:
+    """A backend segment or audio chunk, retaining its original boundaries."""
+
+    char_start: int
+    char_end: int
+    start: float
+    end: float
+    language: str
+    sentence: bool = False
 
 
 @dataclass(frozen=True)
 class TranscriptionResult:
-    """Backend-neutral transcription and its source provenance."""
+    """Native observations shared by subtitles and application metadata."""
 
     text: str
     words: tuple[TimedWord, ...]
@@ -85,278 +74,74 @@ class TranscriptionResult:
     diagnostics: dict[str, Any] = field(default_factory=dict[str, Any])
 
     def validate(self) -> None:
-        """Reject empty, reordered, missing, or out-of-range transcript spans."""
+        """Check text coverage and native timing without repairing observations."""
         if not self.text.strip() or not self.words or not self.segments:
             raise TranscriptionError("Empty transcription", code="empty")
         if not math.isfinite(self.audio_duration) or self.audio_duration <= 0:
             raise TranscriptionError("Invalid audio duration", code="timing")
-        cursor = 0
-        previous_start = 0.0
-        for word in self.words:
-            if not cursor <= word.char_start < word.char_end <= len(self.text):
-                raise TranscriptionError("Invalid text span ordering", code="alignment")
-            if self.text[cursor : word.char_start].strip():
-                raise TranscriptionError("Unowned transcript text", code="alignment")
-            self.validate_alignment_interval(word.start, word.end, self.audio_duration)
-            if word.start < previous_start:
-                raise TranscriptionError("Reordered word timestamps", code="alignment")
-            if word.score is not None and not (
-                math.isfinite(word.score) and 0 <= word.score <= 1
-            ):
-                raise TranscriptionError("Invalid word confidence", code="alignment")
-            previous_start = word.start
-            cursor = word.char_end
-        if self.text[cursor:].strip():
-            raise TranscriptionError("Unowned transcript tail", code="alignment")
-        if not any(word.start < word.end for word in self.words):
-            raise TranscriptionError(
-                "Nonempty transcript has no positive alignment intervals",
-                code="alignment",
-            )
-        previous_start = 0.0
-        cursor = 0
-        for segment in self.segments:
-            if not cursor <= segment.char_start < segment.char_end <= len(self.text):
-                raise TranscriptionError("Invalid source text spans", code="alignment")
-            if self.text[cursor : segment.char_start].strip():
-                raise TranscriptionError("Unowned source text", code="alignment")
-            cursor = segment.char_end
-            self.validate_alignment_interval(
-                segment.start, segment.end, self.audio_duration
-            )
-            if segment.start < previous_start:
-                raise TranscriptionError("Reordered source segments", code="alignment")
-            previous_start = segment.start
-        if self.text[cursor:].strip():
-            raise TranscriptionError("Unowned source text tail", code="alignment")
+        for items in (self.words, self.segments):
+            cursor, previous_start = 0, 0.0
+            for item in items:
+                if not cursor <= item.char_start < item.char_end <= len(self.text):
+                    raise TranscriptionError(
+                        "Invalid text span ordering", code="alignment"
+                    )
+                if self.text[cursor : item.char_start].strip():
+                    raise TranscriptionError(
+                        "Unowned transcript text", code="alignment"
+                    )
+                for bound in (item.start, item.end):
+                    if bound is not None:
+                        self.validate_alignment_interval(
+                            bound, bound, self.audio_duration
+                        )
+                if item.start is not None:
+                    if item.start < previous_start:
+                        raise TranscriptionError(
+                            "Reordered timestamps", code="alignment"
+                        )
+                    previous_start = item.start
+                    if item.end is not None:
+                        self.validate_alignment_interval(
+                            item.start, item.end, self.audio_duration
+                        )
+                cursor = item.char_end
+            if self.text[cursor:].strip():
+                raise TranscriptionError("Unowned transcript tail", code="alignment")
+        if not any(
+            word.start is not None and word.end is not None and word.start < word.end
+            for word in self.words
+        ) and not any(
+            segment.sentence and segment.start < segment.end
+            for segment in self.segments
+        ):
+            raise TranscriptionError("No usable alignment timing", code="alignment")
         if not self.detected_languages or any(
             language not in VALID_LANGUAGES for language in self.detected_languages
         ):
             raise TranscriptionError("Unsupported language", code="language")
+        for word in self.words:
+            if word.score is not None and not (
+                math.isfinite(word.score) and 0 <= word.score <= 1
+            ):
+                raise TranscriptionError("Invalid word confidence", code="alignment")
 
     @staticmethod
     def validate_alignment_interval(start: float, end: float, duration: float) -> None:
-        """Validate finite native observations, including equal boundaries."""
+        """Accept finite native points as well as positive time intervals."""
         if not (
             math.isfinite(start)
             and math.isfinite(end)
             and 0 <= start <= end <= duration + TIMESTAMP_TOLERANCE
         ):
             raise TranscriptionError(
-                f"Invalid alignment timestamp interval: start={start}, "
-                + f"end={end}, duration={duration}",
+                f"Invalid alignment timestamp interval: start={start}, end={end}, duration={duration}",
                 code="timing",
             )
 
-    @classmethod
-    def validate_interval(cls, start: float, end: float, duration: float) -> None:
-        """Validate a positive source window; native word observations may be points."""
-        cls.validate_alignment_interval(start, end, duration)
-        if start == end:
-            raise TranscriptionError("Empty source interval", code="timing")
-
-    def metadata(self, subtitle_cue_count: int) -> dict[str, Any]:
-        """Map results to the recursively merged application metadata contract.
-
-        Languages are a scalar CSV value so retranscription replaces the whole
-        value. Primary language is the first nonempty source segment's detection.
-        """
-        self.validate()
-        speaking_duration = 0.0
-        interval_end = 0.0
-        for segment in self.segments:
-            speaking_duration += max(
-                0.0, segment.end - max(segment.start, interval_end)
-            )
-            interval_end = max(interval_end, segment.end)
-        scores = [word.score for word in self.words if word.score is not None]
-        return {
-            "language": self.detected_languages[0],
-            "detected_languages": ",".join(self.detected_languages),
-            "backend": self.backend,
-            "asr_model": self.asr_model,
-            "alignment_model": self.alignment_model,
-            "segments": len(self.segments),
-            "total_words": len(self.words),
-            "total_duration": max(segment.end for segment in self.segments),
-            "audio_duration": self.audio_duration,
-            "speaking_duration": speaking_duration,
-            "subtitle_cue_count": subtitle_cue_count,
-            "average_word_confidence": (
-                round(sum(scores) / len(scores), 4) if scores else None
-            ),
-            "unaligned_word_count": sum(
-                word.provenance == "inferred" for word in self.words
-            ),
-            "alignment_warnings": int(self.diagnostics.get("alignment_warnings", 0)),
-        }
-
-
-class TextReconciler:
-    """Match alignment character streams to lossless display spans.
-
-    Matching ignores punctuation and case, allowing contractions, apartment
-    numbers, and abbreviations to use different alignment token boundaries.
-    Unmatched display tokens receive bounded inferred times. A transcript with
-    no reliable anchors or less than 70 percent character coverage fails.
-    """
-
-    @staticmethod
-    def canonical(text: str) -> str:
-        """Return case-folded letters and digits for alignment comparison."""
-        return "".join(
-            character
-            for character in unicodedata.normalize("NFKC", text).casefold()
-            if character.isalnum()
-        )
-
-    @classmethod
-    def reconcile(
-        cls,
-        text: str,
-        tokens: list[AlignmentToken],
-        start: float,
-        end: float,
-        speaker: str | None = None,
-    ) -> tuple[TimedWord, ...]:
-        """Produce complete timed display spans within source bounds.
-
-        :raises TranscriptionError: If text or timing cannot be reconciled safely.
-        """
-        TranscriptionResult.validate_interval(start, end, end)
-        spans = list(re.finditer(r"(?:[^\w\s]+\s+)*\S+(?:\s+[^\w\s]+)*(?=\s|$)", text))
-        if not spans:
-            raise TranscriptionError("Empty source segment", code="empty")
-        target = ""
-        owners: list[int] = []
-        for index, span in enumerate(spans):
-            canonical = cls.canonical(span.group())
-            target += canonical
-            owners.extend([index] * len(canonical))
-        aligned = ""
-        token_owners: list[int] = []
-        for index, token in enumerate(tokens):
-            for bound in (token.start, token.end):
-                if bound is not None and not (
-                    math.isfinite(bound) and start <= bound <= end + TIMESTAMP_TOLERANCE
-                ):
-                    raise TranscriptionError(
-                        "Invalid alignment timestamp", code="timing"
-                    )
-            if token.start is not None and token.end is not None:
-                TranscriptionResult.validate_alignment_interval(
-                    token.start, token.end, end
-                )
-                if token.start < start:
-                    raise TranscriptionError(
-                        "Alignment precedes source interval", code="timing"
-                    )
-            canonical = cls.canonical(token.text)
-            aligned += canonical
-            token_owners.extend([index] * len(canonical))
-        matches: list[set[int]] = [set() for _ in spans]
-        matched = 0
-        word_coverage = [0 for _ in spans]
-        for block in SequenceMatcher(
-            None, target, aligned, autojunk=False
-        ).get_matching_blocks():
-            matched += block.size
-            for offset in range(block.size):
-                owner = owners[block.a + offset]
-                matches[owner].add(token_owners[block.b + offset])
-                word_coverage[owner] += 1
-        if (
-            not target
-            or not aligned
-            or min(matched / len(target), matched / len(aligned))
-            < ALIGNMENT_MIN_CHARACTER_COVERAGE
-        ):
-            raise TranscriptionError("ASR/alignment text discrepancy", code="alignment")
-        words: list[TimedWord | None] = []
-        for span, indices, coverage in zip(spans, matches, word_coverage):
-            anchors = [
-                tokens[index]
-                for index in sorted(indices)
-                if tokens[index].start is not None and tokens[index].end is not None
-            ]
-            if not anchors:
-                words.append(None)
-                continue
-            starts = [
-                float(token.start) for token in anchors if token.start is not None
-            ]
-            ends = [float(token.end) for token in anchors if token.end is not None]
-            scores = [token.score for token in anchors if token.score is not None]
-            words.append(
-                TimedWord(
-                    span.start(),
-                    span.end(),
-                    min(starts),
-                    max(ends),
-                    provenance=(
-                        "aligned"
-                        if coverage == len(cls.canonical(span.group()))
-                        and all(token.provenance == "aligned" for token in anchors)
-                        else "inferred"
-                    ),
-                    speaker=anchors[0].speaker or speaker,
-                    score=sum(scores) / len(scores) if scores else None,
-                )
-            )
-        if not any(word is not None and word.start < word.end for word in words):
-            raise TranscriptionError(
-                "Nonempty transcript has no timed alignment anchors", code="alignment"
-            )
-        cls._infer_missing(words, spans, start, end, speaker)
-        complete = tuple(word for word in words if word is not None)
-        for previous, current in zip(complete, complete[1:]):
-            if current.start < previous.start:
-                raise TranscriptionError(
-                    "Reordered alignment anchors", code="alignment"
-                )
-        return complete
-
-    @staticmethod
-    def _infer_missing(
-        words: list[TimedWord | None],
-        spans: list[re.Match[str]],
-        start: float,
-        end: float,
-        speaker: str | None,
-    ) -> None:
-        """Interpolate only within adjacent anchors or source segment bounds."""
-        index = 0
-        while index < len(words):
-            if words[index] is not None:
-                index += 1
-                continue
-            stop = index + 1
-            while stop < len(words) and words[stop] is None:
-                stop += 1
-            previous = words[index - 1] if index else None
-            following = words[stop] if stop < len(words) else None
-            left = previous.end if previous else start
-            right = following.start if following else end
-            if right < left:
-                raise TranscriptionError(
-                    "No interval for unaligned words", code="alignment"
-                )
-            step = (right - left) / (stop - index)
-            for offset, word_index in enumerate(range(index, stop)):
-                span = spans[word_index]
-                words[word_index] = TimedWord(
-                    span.start(),
-                    span.end(),
-                    left + step * offset,
-                    left + step * (offset + 1),
-                    "inferred",
-                    speaker,
-                )
-            index = stop
-
 
 class ResultBuilder:
-    """Assemble source segments with explicit whitespace and absolute offsets."""
+    """Map ordered native tokens to original text; never guess matches or times."""
 
     text: str
 
@@ -364,7 +149,16 @@ class ResultBuilder:
         self.text = ""
         self.words: list[TimedWord] = []
         self.segments: list[SourceSegment] = []
-        self.languages: list[str] = []
+
+    @staticmethod
+    def canonical(text: str) -> str:
+        """Ignore only case, Unicode compatibility forms, and punctuation."""
+        return "".join(
+            char
+            for source_char in text
+            for char in unicodedata.normalize("NFKC", source_char).casefold()
+            if char.isalnum()
+        )
 
     def append(
         self,
@@ -373,57 +167,66 @@ class ResultBuilder:
         start: float,
         end: float,
         language: str,
-        speaker: str | None = None,
-        derive_speech_bounds: bool = False,
+        sentence: bool = False,
     ) -> None:
-        """Reconcile one source segment and preserve its original time origin."""
+        """Preserve a native segment and project its tokens onto exact source text.
+
+        Token boundaries may split contractions or omit punctuation. The complete
+        letter/digit stream must match in order; missing or changed words fail
+        explicitly. Missing timestamps remain missing. A native sentence with no
+        word alignment retains its text and segment timing for display fallback.
+        """
         text = text.strip()
         if not text:
             return
-        if language not in VALID_LANGUAGES:
-            raise TranscriptionError(
-                f"Unsupported language: {language}", code="language"
-            )
-        words = TextReconciler.reconcile(text, tokens, start, end, speaker)
+        if not tokens and sentence:
+            tokens = [AlignmentToken(text)]
+        target = self.canonical(text)
+        if not tokens or target != "".join(
+            self.canonical(token.text) for token in tokens
+        ):
+            raise TranscriptionError("ASR/alignment text discrepancy", code="alignment")
+        positions = [
+            index for index, char in enumerate(text) for _ in self.canonical(char)
+        ]
         if self.text:
             self.text += " "
         offset = len(self.text)
         self.text += text
-        self.words.extend(
-            replace(
-                word,
-                char_start=word.char_start + offset,
-                char_end=word.char_end + offset,
-            )
-            for word in words
-        )
-        if derive_speech_bounds:
-            groups: list[list[TimedWord]] = []
-            group: list[TimedWord] = []
-            for word in words:
-                if group and word.start - group[-1].end >= SOURCE_SPEECH_PAUSE_SECONDS:
-                    groups.append(group)
-                    group = []
-                group.append(word)
-            if group:
-                groups.append(group)
-            self.segments.extend(
-                SourceSegment(
-                    offset + group[0].char_start,
-                    offset + group[-1].char_end,
-                    group[0].start,
-                    max(word.end for word in group),
-                    language,
-                    speaker,
+        cursor, text_cursor = 0, 0
+        for index, token in enumerate(tokens):
+            length = len(self.canonical(token.text))
+            cursor += length
+            if index == len(tokens) - 1:
+                stop = len(text)
+            elif length:
+                stop = positions[cursor - 1] + 1
+                while (
+                    stop < len(text)
+                    and not text[stop].isalnum()
+                    and not text[stop].isspace()
+                ):
+                    stop += 1
+            else:
+                stop = text.find(token.text, text_cursor) + len(token.text)
+            if stop <= text_cursor:
+                raise TranscriptionError("Unmapped alignment token", code="alignment")
+            self.words.append(
+                TimedWord(
+                    offset + text_cursor,
+                    offset + stop,
+                    token.start,
+                    token.end,
+                    token.speaker,
+                    token.score,
                 )
-                for group in groups
             )
-        else:
-            self.segments.append(
-                SourceSegment(offset, len(self.text), start, end, language, speaker)
-            )
-        if language not in self.languages:
-            self.languages.append(language)
+            text_cursor = stop
+            while text_cursor < len(text) and text[text_cursor].isspace():
+                text_cursor += 1
+        self.segments.append(
+            SourceSegment(offset, len(self.text), start, end, language, sentence)
+        )
 
     def build(
         self,
@@ -433,33 +236,17 @@ class ResultBuilder:
         alignment_model: str,
         diagnostics: dict[str, Any] | None = None,
     ) -> TranscriptionResult:
-        """Return a validated immutable transcript with diagnostic counts."""
-        details = dict(diagnostics or {})
-        details["alignment_warnings"] = sum(
-            word.provenance == "inferred" for word in self.words
-        )
-        details["unaligned_word_count"] = details["alignment_warnings"]
-        details["zero_duration_word_count"] = sum(
-            word.start == word.end for word in self.words
-        )
-        details["last_aligned_word_end"] = max(
-            (word.end for word in self.words if word.provenance == "aligned"),
-            default=None,
-        )
-        details["suspicious_gap_count"] = sum(
-            right.start - left.end > SUSPICIOUS_GAP_SECONDS
-            for left, right in zip(self.words, self.words[1:])
-        )
+        """Validate the assembled result once at the backend boundary."""
         result = TranscriptionResult(
             self.text,
             tuple(self.words),
             tuple(self.segments),
             audio_duration,
-            tuple(self.languages),
+            tuple(dict.fromkeys(segment.language for segment in self.segments)),
             backend,
             asr_model,
             alignment_model,
-            details,
+            dict(diagnostics or {}),
         )
         result.validate()
         return result

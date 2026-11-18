@@ -21,7 +21,7 @@ from transcription_pipeline.constants import (
 )
 from ..deployment import ManifestStore
 from ..errors import ConfigurationError, TranscriptionError
-from ..results import TimedWord, TranscriptionResult
+from ..results import SourceSegment, TimedWord, TranscriptionResult
 
 
 @dataclass(frozen=True)
@@ -80,6 +80,9 @@ class SubtitleRenderer:
         """Map each source language's sentence spans into the complete transcript."""
         endings: set[int] = set()
         for segment in result.segments:
+            endings.add(segment.char_end)
+            if segment.sentence:
+                continue
             tokenizer = self._tokenizer(
                 segment.language, str(ManifestStore.roots()["nltk_data"])
             )
@@ -99,6 +102,7 @@ class SubtitleRenderer:
         group: list[TimedWord],
         word: TimedWord,
         sentence_ends: set[int],
+        native_sentence: bool,
     ) -> bool:
         """Honor supplied speakers; otherwise preserve sentences and source boundaries.
 
@@ -110,9 +114,11 @@ class SubtitleRenderer:
             return True
         if word.speaker is not None:
             return False
-        return (
-            previous.char_end in sentence_ends
-            or word.start - previous.end >= self.config.pause_break
+        return previous.char_end in sentence_ends or (
+            not native_sentence
+            and word.start is not None
+            and previous.end is not None
+            and word.start - previous.end >= self.config.pause_break
         )
 
     def cues(self, result: TranscriptionResult) -> tuple[Cue, ...]:
@@ -121,8 +127,16 @@ class SubtitleRenderer:
         sentence_ends = self._sentence_ends(result)
         groups: list[list[TimedWord]] = []
         group: list[TimedWord] = []
+        segments = iter(result.segments)
+        segment = next(segments)
+        sources: dict[int, SourceSegment] = {}
         for word in result.words:
-            if group and self._should_break(group, word, sentence_ends):
+            while word.char_start >= segment.char_end:
+                segment = next(segments)
+            sources[word.char_start] = segment
+            if group and self._should_break(
+                group, word, sentence_ends, segment.sentence
+            ):
                 groups.append(group)
                 group = []
             group.append(word)
@@ -140,17 +154,44 @@ class SubtitleRenderer:
         maximum = math.floor(
             result.audio_duration * MILLISECONDS_PER_SECOND + TIMESTAMP_TOLERANCE
         )
-        for words in groups:
+        for index, words in enumerate(groups):
             text = self._whitespace(
                 result.text[words[0].char_start : words[-1].char_end]
             )
             if self.config.render_speakers and words[0].speaker:
                 text = f"[{words[0].speaker}] {text}"
-            start = round(words[0].start * MILLISECONDS_PER_SECOND)
-            end = min(
-                round(max(word.end for word in words) * MILLISECONDS_PER_SECOND),
-                maximum,
+            first, last = words[0], words[-1]
+            first_source, last_source = (
+                sources[first.char_start],
+                sources[last.char_start],
             )
+            start_time = first.start
+            if first_source.sentence and first.char_start == first_source.char_start:
+                start_time = first_source.start
+            if start_time is None:
+                previous_end = groups[index - 1][-1].end if index else None
+                start_time = (
+                    max(first_source.start, previous_end)
+                    if previous_end is not None
+                    else first_source.start
+                )
+            end_time = last.end
+            if last_source.sentence and last.char_end == last_source.char_end:
+                end_time = last_source.end
+            if end_time is None:
+                following_start = (
+                    groups[index + 1][0].start if index + 1 < len(groups) else None
+                )
+                end_time = (
+                    min(last_source.end, following_start)
+                    if following_start is not None
+                    else last_source.end
+                )
+            end_time = max(
+                [end_time] + [word.end for word in words if word.end is not None]
+            )
+            start = round(start_time * MILLISECONDS_PER_SECOND)
+            end = min(round(end_time * MILLISECONDS_PER_SECOND), maximum)
             cues.append(Cue(start, end, text))
         cues = self._fit_cue_times(cues, maximum)
         for index, cue in enumerate(cues):

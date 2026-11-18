@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from transcription_pipeline.result_metadata import ResultMetadata
 from transcription_pipeline.deployment import Deployment
 from transcription_pipeline.results import TranscriptionResult
 from transcription_pipeline.backends.whisperx import WhisperXTranscriber
@@ -33,10 +34,13 @@ def whisperx_backend(
     whisperx.align.return_value = {
         "segments": [
             {
+                "text": "Hello, world!",
+                "start": 0,
+                "end": 2,
                 "words": [
                     {"word": "hello", "start": 0, "end": 1, "score": 0.8},
                     {"word": "world", "start": 1, "end": 2, "score": 1},
-                ]
+                ],
             }
         ]
     }
@@ -62,9 +66,8 @@ def test_whisperx_transcribes_and_reuses_models(
             path, TranscriptionContext("Test Apartments", "HVAC")
         )
         assert result.text == "Hello, world!"
-        assert result.metadata(1)["average_word_confidence"] == 0.9
+        assert ResultMetadata(result).export(1)["average_word_confidence"] == 0.9
         assert result.words[0].end == first_end
-        assert result.words[0].provenance == "aligned"
     assert whisperx.load_model.call_count == 1
     assert whisperx.load_align_model.call_count == 1
     assert whisperx.load_model.call_args.kwargs["local_files_only"] is True
@@ -174,7 +177,7 @@ def test_workers_can_initialize_cached_models_concurrently(
     assert workers[0].model is not workers[1].model
 
 
-def test_whisperx_uses_shared_fallback_for_library_interpolated_words(
+def test_whisperx_preserves_native_timestamps_without_confidence(
     whisperx_backend: Any,
 ) -> None:
     backend, whisperx, path = whisperx_backend
@@ -183,15 +186,90 @@ def test_whisperx_uses_shared_fallback_for_library_interpolated_words(
     whisperx.align.return_value = {
         "segments": [
             {
+                "text": "Hello 204-B world!",
+                "start": 0,
+                "end": 3,
                 "words": [
                     {"word": "Hello", "start": 0, "end": 1, "score": 0.9},
                     {"word": "204-B", "start": 1, "end": 1},
                     {"word": "world", "start": 2, "end": 3, "score": 0.9},
-                ]
+                ],
             }
         ]
     }
     result = backend.transcribe(path, TranscriptionContext())
     assert result.text == "Hello 204-B world!"
-    assert result.words[1].provenance == "inferred"
-    assert (result.words[1].start, result.words[1].end) == (1, 2)
+    assert result.words[1].score is None
+    assert (result.words[1].start, result.words[1].end) == (1, 1)
+
+
+@pytest.mark.usefixtures("sentence_tokenizer")
+def test_adapter_preserves_aligned_subtitles_instead_of_asr_chunks(
+    whisperx_backend: Any,
+) -> None:
+    """Two ASR chunks must retain their three aligned sentences in the final cues."""
+    from transcription_pipeline.subtitles import SubtitleRenderer
+
+    backend, whisperx, path = whisperx_backend
+    sources = [
+        {"text": "your apartment number seven twenty eight", "start": 0, "end": 4},
+        {"text": "thank you", "start": 4, "end": 5},
+    ]
+    backend.model.transcribe.return_value["segments"] = sources
+    native: list[dict[str, Any]] = [
+        {"text": "your apartment number", "start": 0, "end": 2},
+        {"text": "seven twenty eight", "start": 2, "end": 4},
+        {"text": "thank you", "start": 4, "end": 5},
+    ]
+    whisperx.align.return_value = {
+        "segments": [
+            {
+                **segment,
+                "words": [
+                    {
+                        "word": word,
+                        "start": segment["start"] + 0.1,
+                        "end": segment["end"] - 0.1,
+                    }
+                    for word in segment["text"].split()
+                ],
+            }
+            for segment in native
+        ]
+    }
+    result = backend.transcribe(path, TranscriptionContext())
+    assert [
+        (cue.text, cue.start, cue.end) for cue in SubtitleRenderer().cues(result)
+    ] == [
+        (segment["text"], segment["start"] * 1000, segment["end"] * 1000)
+        for segment in native
+    ]
+
+
+@pytest.mark.parametrize("words", [[], [{"word": "Hello,"}, {"word": "world!"}]])
+def test_whisperx_missing_word_alignment_uses_native_sentence_for_display(
+    whisperx_backend: Any, words: list[dict[str, str]]
+) -> None:
+    """Keep text with native sentence timing instead of inventing word timestamps."""
+    from transcription_pipeline.subtitles import SubtitleRenderer
+
+    backend, whisperx, path = whisperx_backend
+    whisperx.align.return_value["segments"][0]["words"] = words
+    result = backend.transcribe(path, TranscriptionContext())
+    assert all(word.start is None and word.end is None for word in result.words)
+    assert [
+        (cue.text, cue.start, cue.end) for cue in SubtitleRenderer().cues(result)
+    ] == [("Hello, world!", 0, 2000)]
+    assert ResultMetadata(result).export(1)["unaligned_word_count"] == 2
+
+
+def test_whisperx_alignment_cannot_silently_drop_transcript_text(
+    whisperx_backend: Any,
+) -> None:
+    """Native output is authoritative for timing but must still cover the ASR text."""
+    backend, whisperx, path = whisperx_backend
+    segment = whisperx.align.return_value["segments"][0]
+    segment["text"] = "Hello,"
+    segment["words"] = segment["words"][:1]
+    with pytest.raises(TranscriptionError, match="changed transcript text"):
+        backend.transcribe(path, TranscriptionContext())

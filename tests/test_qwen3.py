@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from transcription_pipeline.result_metadata import ResultMetadata
 from transcription_pipeline.constants import (
     QWEN_GENERATION_BUDGET,
     QWEN_SAMPLE_RATE,
@@ -349,7 +350,7 @@ def test_mixed_language_chunk_offsets_and_empty_chunk_coverage(
     assert len(result.diagnostics["chunks"]) == 3
     assert backend._align.call_count == 2
     assert transformers.AutoModelForMultimodalLM.from_pretrained.call_count == 1
-    assert result.metadata(2)["average_word_confidence"] is None
+    assert ResultMetadata(result).export(2)["average_word_confidence"] is None
 
 
 def test_entirely_empty_recording_fails(
@@ -439,18 +440,20 @@ def test_collapsed_qwen_timestamps_preserve_text_and_bounded_timing(
     )
     builder = ResultBuilder()
     assert tokens == original
-    builder.append(text, tokens, offset, offset + 2, "en", derive_speech_bounds=True)
+    builder.append(text, tokens, offset, offset + 2, "en")
     result = builder.build(offset + 2, "qwen3", "asr", "aligner")
     assert result.text == text
     assert len(result.words) == len(original)
-    assert result.metadata(1)["unaligned_word_count"] == 0
-    assert result.diagnostics["zero_duration_word_count"] == sum(
+    assert ResultMetadata(result).export(1)["unaligned_word_count"] == 0
+    assert ResultMetadata(result).diagnostics()["zero_duration_word_count"] == sum(
         a == b for a, b in intervals
     )
     for source, word in zip(original, result.words):
         assert (word.start, word.end) == (source.start, source.end)
-        assert word.provenance == "aligned"
-    assert all(a.end <= b.start for a, b in zip(result.words, result.words[1:]))
+    assert all(
+        a.end is not None and b.start is not None and a.end <= b.start
+        for a, b in zip(result.words, result.words[1:])
+    )
 
 
 @pytest.mark.parametrize(

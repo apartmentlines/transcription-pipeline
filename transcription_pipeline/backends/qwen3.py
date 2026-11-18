@@ -376,7 +376,6 @@ class Qwen3Transcriber:
                     offset,
                     chunk.end / QWEN_SAMPLE_RATE,
                     language,
-                    derive_speech_bounds=True,
                 )
             return builder.build(
                 len(waveform) / QWEN_SAMPLE_RATE,

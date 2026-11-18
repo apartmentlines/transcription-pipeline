@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from transcription_pipeline.result_metadata import ResultMetadata
 from transcription_pipeline.backends.factory import BackendFactory
 from transcription_pipeline.deployment import ManifestStore
 from transcription_pipeline.errors import ConfigurationError
@@ -94,7 +95,7 @@ def test_real_recording(
         "peak_reserved_bytes": torch.cuda.max_memory_reserved(deployment.device),
         "torch": torch.__version__,
         "cuda": torch.version.cuda,
-        "metadata": result.metadata(len(parsed)),
+        "metadata": ResultMetadata(result).export(len(parsed)),
     }
     (target / f"{filename}.metrics.json").write_text(
         json.dumps(report, indent=2), encoding="utf-8"

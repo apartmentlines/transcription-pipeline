@@ -1,4 +1,4 @@
-"""Lossless reconciliation, shared cue policy, serialization, and metadata."""
+"""Native text mapping, shared cue policy, serialization, and metadata."""
 
 from __future__ import annotations
 
@@ -7,9 +7,10 @@ from typing import Any
 
 import pytest
 
+from transcription_pipeline.result_metadata import ResultMetadata
 from transcription_pipeline.results import TranscriptionResult
 from transcription_pipeline.errors import TranscriptionError
-from transcription_pipeline.results import AlignmentToken, ResultBuilder, TextReconciler
+from transcription_pipeline.results import AlignmentToken, ResultBuilder
 from transcription_pipeline.subtitles import SubtitleConfig, SubtitleRenderer
 from transcription_pipeline.subtitles.renderer import Cue
 
@@ -39,9 +40,12 @@ def test_text_is_never_reconstructed_from_aligner(
         "es",
     )
     result = builder.build(len(aligned), "qwen3", "asr", "aligner")
+    assert [(word.start, word.end) for word in result.words] == [
+        (i, i + 1) for i in range(len(aligned))
+    ]
     cues = SubtitleRenderer().cues(result)
     assert " ".join(cue.text for cue in cues) == text
-    assert result.metadata(len(cues))["average_word_confidence"] is None
+    assert ResultMetadata(result).export(len(cues))["average_word_confidence"] is None
 
 
 @pytest.mark.parametrize(
@@ -68,8 +72,9 @@ def test_serializer_preserves_literal_text(text: str, format_: str) -> None:
 
 
 @pytest.mark.parametrize("following_start", [1, 2])
-def test_unaligned_word_retained_with_bounded_inference(following_start: float) -> None:
-    words = TextReconciler.reconcile(
+def test_missing_word_timing_remains_missing(following_start: float) -> None:
+    builder = ResultBuilder()
+    builder.append(
         "Hello missing world",
         [
             AlignmentToken("Hello", 0, 1),
@@ -78,9 +83,14 @@ def test_unaligned_word_retained_with_bounded_inference(following_start: float) 
         ],
         0,
         3,
+        "en",
     )
-    assert words[1].provenance == "inferred"
-    assert (words[1].start, words[1].end) == (1, following_start)
+    result = builder.build(3, "qwen3", "asr", "aligner")
+    assert (result.words[1].start, result.words[1].end) == (None, None)
+    assert ResultMetadata(result).export(1)["unaligned_word_count"] == 1
+    assert [cue.text for cue in SubtitleRenderer().cues(result)] == [
+        "Hello missing world"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -94,7 +104,9 @@ def test_unaligned_word_retained_with_bounded_inference(following_start: float) 
 )
 def test_unusable_alignment_fails(tokens: list[AlignmentToken]) -> None:
     with pytest.raises(TranscriptionError):
-        TextReconciler.reconcile("hello world", tokens, 0, 3)
+        builder = ResultBuilder()
+        builder.append("hello world", tokens, 0, 3, "en")
+        builder.build(3, "qwen3", "asr", "aligner")
 
 
 @pytest.mark.parametrize(
@@ -102,7 +114,9 @@ def test_unusable_alignment_fails(tokens: list[AlignmentToken]) -> None:
 )
 def test_invalid_timestamps_fail(start: float, end: float) -> None:
     with pytest.raises(TranscriptionError):
-        TextReconciler.reconcile("hello", [AlignmentToken("hello", start, end)], 0, 3)
+        builder = ResultBuilder()
+        builder.append("hello", [AlignmentToken("hello", start, end)], 0, 3, "en")
+        builder.build(3, "qwen3", "asr", "aligner")
 
 
 @pytest.mark.parametrize("speaker", [None, "B"])
@@ -159,17 +173,16 @@ def test_short_call_exchange_preserves_sentences_including_collapsed_name() -> N
         43,
         56,
         "en",
-        derive_speech_bounds=True,
     )
     result = builder.build(67.54, "qwen3", "asr", "aligner")
-    before = result.metadata(0)
+    before = ResultMetadata(result).export(0)
     cues = SubtitleRenderer().cues(result)
     assert [cue.text for cue in cues] == [text for text, _, _ in sentences]
     assert (cues[4].start, cues[4].end) == (49520, 49920)
     assert all(left.end <= right.start for left, right in zip(cues, cues[1:]))
     assert all(cue.start < cue.end for cue in cues)
     assert all(word.speaker is None for word in result.words)
-    assert result.metadata(0) == before
+    assert ResultMetadata(result).export(0) == before
 
 
 def test_unlabelled_source_segments_are_not_joined_without_punctuation() -> None:
@@ -231,9 +244,9 @@ def test_native_points_only_change_cue_layout(
     text = " ".join(token.text for token in tokens)
     duration = max(1, intervals[-1][1])
     builder = ResultBuilder()
-    builder.append(text, tokens, 0, duration, "en", derive_speech_bounds=True)
+    builder.append(text, tokens, 0, duration, "en")
     result = builder.build(duration, "whisperx", "asr", "aligner")
-    before = result.metadata(0)
+    before = ResultMetadata(result).export(0)
     cues = SubtitleRenderer(SubtitleConfig(max_characters=1)).cues(result)
     assert len(cues) == len(tokens)
     assert all(0 <= cue.start < cue.end <= duration * 1000 for cue in cues)
@@ -242,7 +255,7 @@ def test_native_points_only_change_cue_layout(
         f"[{token.speaker}] {token.text}" for token in tokens
     )
     assert [(word.start, word.end) for word in result.words] == intervals
-    assert result.metadata(0) == before
+    assert ResultMetadata(result).export(0) == before
     assert before["average_word_confidence"] == pytest.approx(0.9)
     assert before["unaligned_word_count"] == 0
 
@@ -253,7 +266,9 @@ def test_metadata_source_intervals_are_independent_of_cues(
     result = sample_transcription_result
     short = SubtitleRenderer(SubtitleConfig(max_characters=1)).cues(result)
     long = SubtitleRenderer().cues(result)
-    a, b = result.metadata(len(short)), result.metadata(len(long))
+    a, b = ResultMetadata(result).export(len(short)), ResultMetadata(result).export(
+        len(long)
+    )
     a.pop("subtitle_cue_count")
     b.pop("subtitle_cue_count")
     assert a == b
@@ -280,12 +295,11 @@ def test_qwen_source_speech_intervals_exclude_silence() -> None:
         0,
         10,
         "en",
-        derive_speech_bounds=True,
     )
     result = builder.build(10, "qwen3", "asr", "align")
-    assert result.metadata(2)["speaking_duration"] == 2
-    assert result.metadata(2)["total_duration"] == 9
-    assert result.metadata(2)["segments"] == 2
+    assert ResultMetadata(result).export(2)["speaking_duration"] == 2
+    assert ResultMetadata(result).export(2)["total_duration"] == 9
+    assert ResultMetadata(result).export(2)["segments"] == 2
 
 
 def test_missing_prefix_uses_original_chunk_bounds() -> None:
@@ -296,11 +310,11 @@ def test_missing_prefix_uses_original_chunk_bounds() -> None:
         0,
         5,
         "en",
-        derive_speech_bounds=True,
     )
     result = builder.build(5, "qwen3", "asr", "align")
-    assert result.words[0].provenance == "inferred"
-    assert (result.words[0].start, result.words[0].end) == (0, 2)
+    assert (result.words[0].start, result.words[0].end) == (None, None)
+    cue = SubtitleRenderer().cues(result)[0]
+    assert (cue.text, cue.start, cue.end) == ("the apartment", 0, 3000)
 
 
 def test_overlapping_source_intervals_are_counted_once() -> None:
@@ -308,7 +322,7 @@ def test_overlapping_source_intervals_are_counted_once() -> None:
     builder.append("hello", [AlignmentToken("hello", 0, 3)], 0, 3, "en")
     builder.append("world", [AlignmentToken("world", 2, 4)], 2, 4, "en")
     result = builder.build(5, "whisperx", "asr", "align")
-    assert result.metadata(1)["speaking_duration"] == 4
+    assert ResultMetadata(result).export(1)["speaking_duration"] == 4
 
 
 def test_standalone_punctuation_belongs_to_a_spoken_word() -> None:
@@ -334,9 +348,11 @@ def test_standalone_punctuation_belongs_to_a_spoken_word() -> None:
 )
 def test_missing_timestamp_does_not_hide_an_invalid_bound(token: Any) -> None:
     with pytest.raises(TranscriptionError, match="timestamp"):
-        TextReconciler.reconcile(
-            "hello world", [token, AlignmentToken("world", 1, 2)], 0, 3
+        builder = ResultBuilder()
+        builder.append(
+            "hello world", [token, AlignmentToken("world", 1, 2)], 0, 3, "en"
         )
+        builder.build(3, "qwen3", "asr", "aligner")
 
 
 def test_multiple_line_configuration_preserves_complete_text() -> None:
@@ -374,3 +390,21 @@ def test_float_rounding_crosses_minute_boundary() -> None:
     builder.append("hello", [AlignmentToken("hello", 59.9996, 60.2006)], 59, 61, "en")
     output = SubtitleRenderer().render(builder.build(62, "qwen3", "asr", "align"))
     assert "00:01:00,000 --> 00:01:00,201" in output
+
+
+@pytest.mark.parametrize(
+    "aligned", ["call the manager", "call call manager", "call the call manager"]
+)
+def test_word_omissions_or_reordering_are_rejected_instead_of_fuzzy_matched(
+    aligned: str,
+) -> None:
+    """A mostly matching transcript must not silently borrow nearby word timings."""
+    builder = ResultBuilder()
+    with pytest.raises(TranscriptionError, match="text discrepancy"):
+        builder.append(
+            "call call the manager",
+            [AlignmentToken(word, i, i + 1) for i, word in enumerate(aligned.split())],
+            0,
+            4,
+            "en",
+        )

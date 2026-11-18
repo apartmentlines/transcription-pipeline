@@ -8,6 +8,7 @@ from typing import Any, override
 from download_pipeline_processor.file_data import FileData
 from download_pipeline_processor.processors.base_processor import BaseProcessor
 
+from transcription_pipeline.result_metadata import ResultMetadata
 from transcription_pipeline.constants import (
     DEFAULT_COMMUNITY,
 )
@@ -85,5 +86,5 @@ class TranscriptionProcessor(BaseProcessor):
             "id": file_data.id,
             "success": True,
             "transcription": self.renderer.serialize(cues),
-            "metadata": result.metadata(len(cues)),
+            "metadata": ResultMetadata(result).export(len(cues)),
         }

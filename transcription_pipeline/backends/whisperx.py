@@ -123,47 +123,50 @@ class WhisperXTranscriber:
                         f"Unsupported detected language: {language}", code="language"
                     )
                 aligner, metadata = self.load_alignment_model(language)
-                speakers = None
+                aligned = self.whisperx.align(
+                    base["segments"],
+                    aligner,
+                    metadata,
+                    audio,
+                    self.deployment.device,
+                    return_char_alignments=False,
+                )
                 if self.diarization_model is not None:
                     speakers = self.diarization_model(
                         audio, num_speakers=self.deployment.whisperx_num_speakers
                     )
-                builder = ResultBuilder()
-                for source in base["segments"]:
-                    if not source["text"].strip():
-                        continue
-                    aligned = self.whisperx.align(
-                        [source],
-                        aligner,
-                        metadata,
-                        audio,
-                        self.deployment.device,
-                        return_char_alignments=True,
+                    aligned = self.whisperx.assign_word_speakers(speakers, aligned)
+                source_text = " ".join(segment["text"] for segment in base["segments"])
+                aligned_text = " ".join(
+                    segment["text"] for segment in aligned["segments"]
+                )
+                if source_text.split() != aligned_text.split():
+                    raise TranscriptionError(
+                        "WhisperX alignment changed transcript text", code="alignment"
                     )
-                    if speakers is not None:
-                        aligned = self.whisperx.assign_word_speakers(speakers, aligned)
+                builder = ResultBuilder()
+                for segment in aligned["segments"]:
                     tokens = [
                         AlignmentToken(
                             word["word"],
-                            (
-                                word.get("start")
-                                if word.get("score") is not None
-                                else None
-                            ),
-                            word.get("end") if word.get("score") is not None else None,
-                            word.get("speaker"),
+                            word.get("start"),
+                            word.get("end"),
+                            word.get("speaker", segment.get("speaker")),
                             word.get("score"),
-                            "aligned" if word.get("score") is not None else "inferred",
                         )
-                        for segment in aligned["segments"]
                         for word in segment.get("words", [])
                     ]
+                    if not tokens and segment.get("speaker"):
+                        tokens = [
+                            AlignmentToken(segment["text"], speaker=segment["speaker"])
+                        ]
                     builder.append(
-                        source["text"],
+                        segment["text"],
                         tokens,
-                        source["start"],
-                        source["end"],
+                        segment["start"],
+                        segment["end"],
                         language,
+                        sentence=True,
                     )
             return builder.build(
                 len(audio) / 16000,

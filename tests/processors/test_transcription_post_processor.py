@@ -15,6 +15,7 @@ from download_pipeline_processor.file_data import (
     FileData,
 )
 
+from transcription_pipeline.result_metadata import ResultMetadata
 from transcription_pipeline.results import TranscriptionResult
 from transcription_pipeline.errors import TranscriptionError
 from transcription_pipeline.processors.transcription_post_processor import (
@@ -352,7 +353,7 @@ def test_retranscription_metadata_replaces_prior_confidence_and_languages(
     if shutil.which("php") is None:
         pytest.skip("PHP is unavailable for the external metadata merge check")
     result = replace(sample_transcription_result, backend="qwen3")
-    metadata = result.metadata(1)
+    metadata = ResultMetadata(result).export(1)
     processor = TranscriptionPostProcessor()
     payload = processor.format_request_payload(
         {

@@ -17,6 +17,7 @@ from transcription_pipeline.constants import (
 from .backends.factory import BackendFactory
 from .deployment import ManifestStore
 from .results import TranscriptionContext
+from .result_metadata import ResultMetadata
 from .subtitles import SubtitleRenderer
 
 
@@ -102,7 +103,10 @@ class TranscriptionCommand:
         if args.debug_output:
             destination.with_suffix(".txt").write_text(result.text, encoding="utf-8")
             destination.with_suffix(".diagnostics.json").write_text(
-                json.dumps(result.diagnostics, ensure_ascii=False, indent=2) + "\n",
+                json.dumps(
+                    ResultMetadata(result).diagnostics(), ensure_ascii=False, indent=2
+                )
+                + "\n",
                 encoding="utf-8",
             )
         return destination
