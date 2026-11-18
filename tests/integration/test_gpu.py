@@ -86,7 +86,8 @@ def test_real_recording(
             deployment.device
         ).total_memory,
         "precision": deployment.precision,
-        "qwen_attention": deployment.qwen_attention,
+        "qwen_batch_size": deployment.qwen_batch_size,
+        "qwen_chunk_seconds": deployment.qwen_chunk_seconds,
         "workers": 1,
         "audio_seconds": result.audio_duration,
         "processing_seconds": elapsed,

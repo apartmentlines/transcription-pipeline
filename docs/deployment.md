@@ -32,49 +32,35 @@ transcriber recording.wav --model-manifest ./manifests/qwen3.json --output-dir .
 
 Model identities and revisions are maintained in [constants.py](../transcription_pipeline/constants.py); installed assets are recorded in the manifest. Use the corresponding frozen requirements file for dependency versions.
 
-## Qwen FlashAttention
+## Qwen shared engine
 
-Qwen defaults to PyTorch SDPA. To use FlashAttention 2 locally, install the optional pinned wheel after the Qwen dependencies:
-
-```bash
-pip install --no-deps --only-binary=:all: --require-hashes -r requirements-qwen3-flash-attention.txt
-TRANSCRIPTION_QWEN_ATTENTION=flash_attention_2 transcriber recording.wav --output-dir ./output
-```
-
-The wheel requires Linux x86-64, CPython 3.12, Torch 2.8 with C++11 ABI, and CUDA 12, matching the Qwen dependency lock. Both BF16 and FP16 are supported.
-
-For Docker:
+Qwen uses one vLLM ASR engine with FlashAttention and one Transformers aligner with SDPA. The ordinary image includes the complete stack; the old optional FlashAttention wheel and `TRANSCRIPTION_QWEN_ATTENTION` setting are no longer used.
 
 ```bash
-docker build -f Dockerfile.qwen3 --target runtime-flash-attention \
-  -t transcription-pipeline-qwen3:flash-attention .
-docker run --rm --gpus all \
-  -e TRANSCRIPTION_API_KEY -e TRANSCRIPTION_DOMAIN \
-  transcription-pipeline-qwen3:flash-attention transcription-processor --limit 100
+docker build -f Dockerfile.qwen3 --target runtime -t transcription-pipeline-qwen3:shared-engine .
+docker run --rm --gpus all --ipc=host \
+  -v "${PWD}/audio-files:/data" \
+  transcription-pipeline-qwen3:shared-engine \
+  transcriber /data/first.wav /data/second.wav --output-dir /data --debug-output
 ```
 
-This target defaults `TRANSCRIPTION_QWEN_ATTENTION` to `flash_attention_2`. Set it to `sdpa` to switch back. The ordinary `runtime` target omits FlashAttention; selecting it there fails with installation instructions. This setting applies to both Qwen models and all entry points.
+For direct installation, use Python 3.12, FFmpeg, GCC/G++, and the pinned `requirements-qwen3-frozen.txt`, then install the project and run `seed-models --backend qwen3` as shown in the README.
+
+| CLI option | Environment variable | Qwen default |
+|---|---|---|
+| `--processing-limit` | `TRANSCRIPTION_PROCESSING_LIMIT` | 4 simultaneous recordings |
+| `--qwen-batch-size` | `TRANSCRIPTION_QWEN_BATCH_SIZE` | 16 active audio chunks |
+| `--qwen-chunk-seconds` | `TRANSCRIPTION_QWEN_CHUNK_SECONDS` | 30 seconds (allowed: 1–90) |
+
+These options work with both `transcriber` and `transcription-processor`. Explicit options override environment defaults. REST `/run` accepts `processing_limit`, `qwen_batch_size`, and `qwen_chunk_seconds` with the same meanings. Each recording retains its own context and output. WhisperX still owns a separate model per worker and defaults to three workers.
+
+Incomplete Qwen generation receives one retry with a neighboring chunk where available. The entire retry window is re-transcribed and aligned; partial text is never appended to the result. Use `--debug-output` to inspect retry diagnostics.
 
 ## GPU compatibility and concurrency
 
-The pinned Qwen stack targets the following deployment GPUs:
+Use an Ampere or newer NVIDIA GPU (RTX 3090 and newer). The pinned Qwen stack uses CUDA 13 and requires an R580 or newer compatible host driver; see [NVIDIA's compatibility table](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html). The 3090 has been tested; throughput and memory usage on other GPUs and MIG slices must be measured separately.
 
-| GPU | Compute capability | FlashAttention kernel |
-|---|---|---|
-| GeForce RTX 3090 | 8.6 | compatible `sm_80` |
-| RTX A6000 | 8.6 | compatible `sm_80` |
-| A40 | 8.6 | compatible `sm_80` |
-| GeForce RTX 4090 | 8.9 | compatible `sm_80` |
-| RTX PRO 4000 Blackwell | 12.0 | `sm_120` |
-| RTX PRO 4500 Blackwell | 12.0 | `sm_120` |
-| RTX PRO 4500 Blackwell Server Edition | 12.0 | `sm_120` |
-| RTX PRO 6000 Blackwell Server Edition MIG 1g.24gb | 12.0 | `sm_120` |
-
-Architecture coverage follows [NVIDIA's GPU table](https://developer.nvidia.com/cuda/gpus), [Ampere/Ada binary compatibility](https://docs.nvidia.com/cuda/ada-compatibility-guide/index.html#application-compatibility-on-the-nvidia-ada-gpu-architecture), and the [pinned FlashAttention build targets](https://github.com/Dao-AILab/flash-attention/blob/v2.8.3.post2/setup.py). The packaged Torch and FlashAttention binaries include compatible kernels. This does not establish measured throughput or memory use on each card.
-
-Use a host driver supporting the GPU and the CUDA 12.8 PyTorch runtime. RTX PRO 6000 Blackwell MIG additionally requires NVIDIA driver R575, at least 575.51.03, and NVIDIA Container Toolkit; see [MIG prerequisites](https://docs.nvidia.com/datacenter/tesla/mig-user-guide/latest/getting-started-with-mig.html#prerequisites).
-
-Both backends default to three workers. Qwen's model weights alone occupy roughly 16.54 GiB across three workers; the remaining memory must accommodate activations, caches, and CUDA overhead. Adjust `--processing-limit` or REST `processing_limit` for available memory and observed throughput. Three-worker peak usage has not been measured on this development machine.
+vLLM compiles kernels for the assigned GPU at startup. Mount a persistent cache at `/root/.cache/vllm` to reuse compilation across runs on compatible hardware. The image includes the required compiler. Start with the defaults and lower the chunk batch size if memory is constrained.
 
 ### MIG selection
 
@@ -84,7 +70,7 @@ Find the assigned instance UUID with `nvidia-smi -L`, then expose it to the cont
 docker run --rm --gpus "device=MIG-<UUID>" \
   -e TRANSCRIPTION_DEVICE=cuda:0 \
   -e TRANSCRIPTION_API_KEY -e TRANSCRIPTION_DOMAIN \
-  transcription-pipeline-qwen3:flash-attention transcription-processor --limit 100
+  transcription-pipeline-qwen3:shared-engine transcription-processor --limit 100
 ```
 
 For direct Python execution, set `CUDA_VISIBLE_DEVICES` to the MIG UUID before launching Python. In Compose, replace the GPU reservation's `count: all` with `device_ids: ["MIG-<UUID>"]`. When the provider already isolates the instance, keep its visibility settings. A single visible instance is `cuda:0`.
@@ -135,7 +121,7 @@ A seeded diarizer is enabled for that installation. Use a separately seeded mani
 
 ## Troubleshooting and deployment checks
 
-For CUDA out-of-memory errors, reduce the processing limit. For missing model assets, reseed the selected backend in its environment. For unexpected output, save text and diagnostics alongside the subtitles:
+For Qwen CUDA out-of-memory errors, reduce `--qwen-batch-size` or `--qwen-chunk-seconds`; for WhisperX, reduce `--processing-limit`. For missing model assets, reseed the selected backend in its environment. For unexpected output, save text and diagnostics alongside the subtitles:
 
 ```bash
 transcriber recording.wav --output-dir ./comparison --debug-output

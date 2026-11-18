@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
-from typing import Literal
 
 DEFAULT_INFERENCE_DEVICE = "cuda:0"
 DEFAULT_INFERENCE_PRECISION = "bfloat16"
-DEFAULT_QWEN_ATTENTION: Literal["sdpa", "flash_attention_2"] = "sdpa"
 DEFAULT_COMMUNITY = "an apartment community"
 DEFAULT_TERMINOLOGY = ""
 MANIFEST_SCHEMA_VERSION = 1
@@ -20,7 +18,6 @@ PUNKT_PARAMETER_FILES = (
     "ortho_context.tab",
     "sent_starters.txt",
 )
-QWEN_ATTENTION_IMPLEMENTATIONS = ("sdpa", "flash_attention_2")
 QWEN_CHUNK_SEARCH_SECONDS = 5
 QWEN_ENERGY_FRAME_MILLISECONDS = 20
 QWEN_LANGUAGE_CODES = {"english": "en", "spanish": "es", "en": "en", "es": "es"}
@@ -84,11 +81,13 @@ DEFAULT_REST_FAILURE_EXIT_CODE = 1
 
 BACKENDS = ("whisperx", "qwen3")
 
-PROCESSING_LIMITS = {"whisperx": 3, "qwen3": 3}
+PROCESSING_LIMITS = {"whisperx": 3, "qwen3": 4}
 
 QWEN_SAMPLE_RATE = 16000
 
-QWEN_MAX_CHUNK_SECONDS = 180
+QWEN_MAX_CHUNK_SECONDS = 30
+QWEN_BATCH_SIZE = 16
+QWEN_KV_CACHE_BYTES = 1024**3
 
 QWEN_GENERATION_BUDGET = 2048
 

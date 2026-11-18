@@ -365,6 +365,8 @@ class TestTranscriptionPipeline:
             simulate_downloads=False,
             backend=None,
             model_manifest=None,
+            qwen_batch_size=None,
+            qwen_chunk_seconds=None,
         )
         mock_pipeline_instance.run.assert_called_once()
 
@@ -429,6 +431,8 @@ class TestTranscriptionPipeline:
             simulate_downloads=False,
             backend=None,
             model_manifest=None,
+            qwen_batch_size=None,
+            qwen_chunk_seconds=None,
         )
         mock_pipeline_instance.run.assert_called_once()
 

@@ -1,10 +1,11 @@
-"""Native Qwen3 ASR and forced alignment with complete audio coverage."""
+"""Batched vLLM ASR and native Qwen alignment with complete audio coverage."""
 
 from __future__ import annotations
 
 import importlib
 import logging
 import math
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from transcription_pipeline.constants import (
     QWEN_CONTEXT,
     QWEN_ENERGY_FRAME_MILLISECONDS,
     QWEN_GENERATION_BUDGET,
+    QWEN_KV_CACHE_BYTES,
     QWEN_LANGUAGE_CODES,
     QWEN_MAX_CHUNK_SECONDS,
     QWEN_SAMPLE_RATE,
@@ -89,13 +91,15 @@ class AudioChunker:
         return waveform
 
     @staticmethod
-    def ranges(waveform: NDArray[np.float32]) -> tuple[AudioChunk, ...]:
+    def ranges(
+        waveform: NDArray[np.float32], chunk_seconds: int = QWEN_MAX_CHUNK_SECONDS
+    ) -> tuple[AudioChunk, ...]:
         """Choose a 20 ms energy minimum in each final five-second search window."""
-        maximum = QWEN_MAX_CHUNK_SECONDS * QWEN_SAMPLE_RATE
-        search = QWEN_CHUNK_SEARCH_SECONDS * QWEN_SAMPLE_RATE
+        maximum = chunk_seconds * QWEN_SAMPLE_RATE
         frame = (
             QWEN_SAMPLE_RATE * QWEN_ENERGY_FRAME_MILLISECONDS // MILLISECONDS_PER_SECOND
         )
+        search = min(QWEN_CHUNK_SEARCH_SECONDS * QWEN_SAMPLE_RATE, maximum - frame)
         chunks: list[AudioChunk] = []
         start = 0
         while start < len(waveform):
@@ -113,7 +117,7 @@ class AudioChunker:
 
 
 class Qwen3Transcriber:
-    """One reusable ASR/aligner pair per pipeline worker.
+    """One vLLM ASR engine and native aligner, called by a single batch owner.
 
     :param deployment: Validated local model paths, device, and precision.
     :param debug: Enable adapter diagnostics without logging transcript text.
@@ -124,7 +128,8 @@ class Qwen3Transcriber:
     torch: ModuleType
     asr_processor: Any
     aligner_processor: Any
-    asr_model: Any
+    llm: Any
+    sampling: Any
     aligner_model: Any
 
     def __init__(self, deployment: Deployment, debug: bool = False) -> None:
@@ -134,30 +139,19 @@ class Qwen3Transcriber:
         self.torch, transformers = self._dependencies()
         if not self.torch.cuda.is_available():
             raise ConfigurationError("Qwen3 requires an NVIDIA CUDA GPU")
-        if (
-            deployment.precision == "bfloat16"
-            or deployment.qwen_attention == "flash_attention_2"
-        ):
-            major, _ = self.torch.cuda.get_device_capability(deployment.device)
-            if major < 8:
-                raise ConfigurationError(
-                    "BF16 and FlashAttention 2 require Ampere or newer NVIDIA hardware"
-                )
-        if deployment.qwen_attention == "flash_attention_2":
-            try:
-                importlib.import_module("flash_attn")
-            except (ImportError, OSError, RuntimeError) as exc:
-                raise ConfigurationError(
-                    "FlashAttention 2 could not load; install the pinned optional "
-                    + "wheel matching Python 3.12 and Torch 2.8 CUDA 12, or set "
-                    + "TRANSCRIPTION_QWEN_ATTENTION=sdpa"
-                ) from exc
-        self.log.info("Qwen attention implementation: %s", deployment.qwen_attention)
+        self.torch.cuda.set_device(deployment.device)
+        major, _ = self.torch.cuda.get_device_capability(deployment.device)
+        if major < 8:
+            raise ConfigurationError(
+                "Qwen vLLM requires Ampere or newer NVIDIA hardware"
+            )
+        os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+        vllm = importlib.import_module("vllm")
         dtype = getattr(self.torch, deployment.precision)
         options = {
             "dtype": dtype,
             "device_map": deployment.device,
-            "attn_implementation": deployment.qwen_attention,
+            "attn_implementation": "sdpa",
             "local_files_only": True,
         }
         try:
@@ -169,15 +163,40 @@ class Qwen3Transcriber:
             self.aligner_processor = transformers.AutoProcessor.from_pretrained(
                 aligner_path, local_files_only=True
             )
-            self.asr_model = transformers.AutoModelForMultimodalLM.from_pretrained(
-                asr_path, **options
-            ).eval()
+            self.llm = vllm.LLM(
+                model=asr_path,
+                dtype=deployment.precision,
+                attention_config={"backend": "FLASH_ATTN"},
+                device_ids=[int(deployment.device.partition(":")[2] or 0)],
+                max_model_len=4096 if deployment.qwen_chunk_seconds <= 60 else 8192,
+                max_num_seqs=deployment.qwen_batch_size,
+                max_num_batched_tokens=4096,
+                kv_cache_memory_bytes=QWEN_KV_CACHE_BYTES,
+                enable_prefix_caching=False,
+                limit_mm_per_prompt={"audio": 1},
+                mm_processor_kwargs={
+                    "sampling_rate": QWEN_SAMPLE_RATE,
+                    "truncation": False,
+                },
+                seed=0,
+            )
+            self.sampling = vllm.SamplingParams(
+                temperature=0,
+                max_tokens=QWEN_GENERATION_BUDGET,
+                skip_special_tokens=False,
+            )
             self.aligner_model = (
                 transformers.AutoModelForTokenClassification.from_pretrained(
                     aligner_path, **options
                 ).eval()
             )
+            self.log.info(
+                "Qwen shared engine ready: active_chunks=%d chunk_seconds=%d",
+                deployment.qwen_batch_size,
+                deployment.qwen_chunk_seconds,
+            )
         except Exception as exc:
+            self.close()
             self._classify_cuda_error(exc)
             raise ConfigurationError(
                 f"Qwen3 local model initialization failed: {exc}"
@@ -188,8 +207,7 @@ class Qwen3Transcriber:
         message = str(exception).lower()
         if "out of memory" in message:
             raise TranscriptionError(
-                f"CUDA out of memory with {self.deployment.worker_count} configured workers; "
-                + "lower --processing-limit",
+                "CUDA out of memory in the shared Qwen engine",
                 code="cuda_oom",
                 transient=True,
             ) from exception
@@ -226,19 +244,6 @@ class Qwen3Transcriber:
         return language, text, detected
 
     @staticmethod
-    def check_termination(
-        token_ids: list[int], eos_ids: int | list[int] | None
-    ) -> None:
-        """Accept natural final EOS, including at the generation-budget boundary."""
-        eos = {eos_ids} if isinstance(eos_ids, int) else set(eos_ids or [])
-        if not token_ids or token_ids[-1] not in eos:
-            raise TranscriptionError(
-                f"ASR generation ended without EOS after {len(token_ids)} tokens "
-                + f"(budget {QWEN_GENERATION_BUDGET}); partial transcription rejected",
-                code="generation_incomplete",
-            )
-
-    @staticmethod
     def _validate_features(inputs: Any, processor: Any, sample_count: int) -> None:
         """Reject processor truncation using the complete audio feature mask."""
         mask = inputs.get("input_features_mask")
@@ -253,56 +258,41 @@ class Qwen3Transcriber:
                 "Processor truncated audio features", code="audio_coverage"
             )
 
-    def _asr(
-        self, audio: NDArray[np.float32], prompt: str
-    ) -> tuple[str | None, str, dict[str, Any]]:
-        """Generate one chunk, validating coverage, context capacity, and termination."""
-        inputs = self.asr_processor.apply_transcription_request(
-            audio=audio,
-            language=None,
-            prompt=prompt,
-            processor_kwargs={
-                "audio_kwargs": {"sampling_rate": QWEN_SAMPLE_RATE, "truncation": False}
-            },
+    def _prompt(self, context: TranscriptionContext) -> str:
+        """Keep each recording's terminology and community in its own request."""
+        prompt = f"{QWEN_CONTEXT} Community: {context.community}. {context.terminology}".strip()
+        return self.asr_processor.apply_chat_template(
+            [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": [{"type": "audio", "audio": ""}]},
+            ],
+            tokenize=False,
+            add_generation_prompt=True,
         )
-        self._validate_features(inputs, self.asr_processor, len(audio))
-        prompt_length = inputs["input_ids"].shape[1]
-        capacity = self.asr_model.config.text_config.max_position_embeddings
-        if prompt_length + QWEN_GENERATION_BUDGET > capacity:
-            raise TranscriptionError(
-                "Audio and prompt exceed model context capacity", code="context"
-            )
-        inputs = inputs.to(self.asr_model.device, self.asr_model.dtype)
-        with self.torch.inference_mode():
-            output = self.asr_model.generate(
-                **inputs,
-                max_new_tokens=QWEN_GENERATION_BUDGET,
-                do_sample=False,
-                use_cache=True,
-                logits_to_keep=1,
-                return_dict_in_generate=False,
-                output_scores=False,
-                forced_eos_token_id=None,
-            )
-        suffix = output[0, prompt_length:].detach().cpu().tolist()
-        eos_ids = self.asr_model.generation_config.eos_token_id
-        self.check_termination(suffix, eos_ids)
-        raw = self.asr_processor.decode(
-            suffix[:-1],
-            return_format="raw",
-            skip_special_tokens=False,
-            clean_up_tokenization_spaces=False,
-        )
-        language, text, detected = self.parse_transcript(raw)
-        diagnostics = {
-            "generated_tokens": len(suffix),
-            "normal_eos": True,
-            "detected_language": detected,
-            "suspected_repetition": bool(
-                re.search(r"\b(\w+)(?:\s+\1){4,}\b", text, re.IGNORECASE)
-            ),
+
+    def _generate(self, requests: list[dict[str, Any]]) -> list[Any]:
+        """Submit independent audio requests in source order to vLLM's scheduler."""
+        responses = self.llm.generate(requests, self.sampling, use_tqdm=False)
+        if len(responses) != len(requests):
+            raise TranscriptionError("ASR response count mismatch", code="protocol")
+        return [response.outputs[0] for response in responses]
+
+    @staticmethod
+    def _request(audio: NDArray[np.float32], prompt: str) -> dict[str, Any]:
+        return {
+            "prompt": prompt,
+            "multi_modal_data": {"audio": (audio, QWEN_SAMPLE_RATE)},
         }
-        return language, text, diagnostics
+
+    def close(self) -> None:
+        """Release the engine process and aligner after all submitted work finishes."""
+        llm = getattr(self, "llm", None)
+        if llm is not None:
+            self.log.info("Stopping Qwen shared engine")
+            llm.llm_engine.engine_core.shutdown()
+            del self.llm
+        if hasattr(self, "aligner_model"):
+            del self.aligner_model
 
     def _align(
         self,
@@ -379,47 +369,146 @@ class Qwen3Transcriber:
     def transcribe(
         self, input_file: str | Path, context: TranscriptionContext
     ) -> TranscriptionResult:
-        """Transcribe every source sample exactly once, keeping chunk-local tensors local."""
-        waveform = AudioChunker.decode(input_file)
-        prompt = f"{QWEN_CONTEXT} Community: {context.community}. {context.terminology}".strip()
-        builder = ResultBuilder()
-        diagnostics: list[dict[str, Any]] = []
-        try:
-            for chunk in AudioChunker.ranges(waveform):
-                audio = waveform[chunk.start : chunk.end]
-                language, text, details = self._asr(audio, prompt)
-                details.update({"start_sample": chunk.start, "end_sample": chunk.end})
-                diagnostics.append(details)
-                if not text:
-                    continue
-                if language is None:
-                    raise TranscriptionError(
-                        "Nonempty text has no language", code="language"
-                    )
-                offset = chunk.start / QWEN_SAMPLE_RATE
-                tokens = self._align(audio, text, language, offset, details)
-                starts = [token.start for token in tokens if token.start is not None]
-                ends = [token.end for token in tokens if token.end is not None]
-                if not starts or not ends:
-                    raise TranscriptionError(
-                        "Nonempty ASR text has no timestamps", code="alignment"
-                    )
-                builder.append(
-                    text,
-                    tokens,
-                    offset,
-                    chunk.end / QWEN_SAMPLE_RATE,
-                    language,
+        """Use the same batched inference path for a standalone recording."""
+        result = self.transcribe_batch([(input_file, context)])[0]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def transcribe_batch(
+        self, recordings: list[tuple[str | Path, TranscriptionContext]]
+    ) -> list[TranscriptionResult | Exception]:
+        """Keep preparation and alignment failures local to their recording."""
+        prepared = []
+        requests: list[dict[str, Any]] = []
+        results: list[TranscriptionResult | Exception] = [
+            TranscriptionError("Recording was not processed", code="inference")
+            for _ in recordings
+        ]
+        for index, (source, context) in enumerate(recordings):
+            try:
+                waveform = AudioChunker.decode(source)
+                chunks = AudioChunker.ranges(
+                    waveform, self.deployment.qwen_chunk_seconds
                 )
-            return builder.build(
-                len(waveform) / QWEN_SAMPLE_RATE,
-                "qwen3",
-                self.deployment.model("asr").repo_id,
-                self.deployment.model("aligner").repo_id,
-                {"chunks": diagnostics},
-            )
-        except (TranscriptionError, ConfigurationError):
-            raise
+                prompt = self._prompt(context)
+                start = len(requests)
+                requests.extend(
+                    self._request(waveform[chunk.start : chunk.end], prompt)
+                    for chunk in chunks
+                )
+                prepared.append((index, waveform, chunks, prompt, start, len(requests)))
+            except Exception as exc:
+                results[index] = exc
+        if not requests:
+            return results
+        try:
+            responses = self._generate(requests)
         except Exception as exc:
             self._classify_cuda_error(exc)
             raise TranscriptionError(exc, code="inference") from exc
+        for index, waveform, chunks, prompt, start, end in prepared:
+            try:
+                results[index] = self._finish_recording(
+                    waveform, chunks, prompt, responses[start:end]
+                )
+            except Exception as exc:
+                if isinstance(exc, (TranscriptionError, ConfigurationError)):
+                    results[index] = exc
+                else:
+                    try:
+                        self._classify_cuda_error(exc)
+                    except TranscriptionError as classified:
+                        results[index] = classified
+                    else:
+                        results[index] = TranscriptionError(exc, code="inference")
+        return results
+
+    def _finish_recording(
+        self,
+        waveform: NDArray[np.float32],
+        chunks: tuple[AudioChunk, ...],
+        prompt: str,
+        responses: list[Any],
+    ) -> TranscriptionResult:
+        """Retry disjoint windows once, then align only the accepted transcript."""
+        builder = ResultBuilder()
+        diagnostics: list[dict[str, Any]] = []
+        index = 0
+        while index < len(chunks):
+            end_index = index + 1
+            response = responses[index]
+            retry = response.finish_reason == "length" or (
+                end_index < len(chunks)
+                and responses[end_index].finish_reason == "length"
+            )
+            if retry:
+                end_index = min(index + 2, len(chunks))
+            chunk = AudioChunk(chunks[index].start, chunks[end_index - 1].end)
+            audio = waveform[chunk.start : chunk.end]
+            details: dict[str, Any] = {
+                "start_sample": chunk.start,
+                "end_sample": chunk.end,
+            }
+            if retry:
+                details["recognition_retry"] = {
+                    "reason": "generation_incomplete",
+                    "original_chunks": [
+                        {
+                            "start_sample": original.start,
+                            "end_sample": original.end,
+                            "generated_tokens": len(output.token_ids),
+                            "finish_reason": output.finish_reason,
+                        }
+                        for original, output in zip(
+                            chunks[index:end_index],
+                            responses[index:end_index],
+                            strict=True,
+                        )
+                    ],
+                }
+                self.log.warning(
+                    "Retrying incomplete ASR with audio window %.2f–%.2fs",
+                    chunk.start / QWEN_SAMPLE_RATE,
+                    chunk.end / QWEN_SAMPLE_RATE,
+                )
+                response = self._generate([self._request(audio, prompt)])[0]
+            if response.finish_reason != "stop":
+                raise TranscriptionError(
+                    "ASR generation did not complete within its token budget"
+                    + (" after one retry" if retry else ""),
+                    code="generation_incomplete",
+                )
+            language, text, detected = self.parse_transcript(response.text)
+            details.update(
+                generated_tokens=len(response.token_ids),
+                normal_eos=True,
+                detected_language=detected,
+                suspected_repetition=bool(
+                    re.search(r"\b(\w+)(?:\s+\1){4,}\b", text, re.IGNORECASE)
+                ),
+            )
+            diagnostics.append(details)
+            index = end_index
+            if not text:
+                continue
+            if language is None:
+                raise TranscriptionError(
+                    "Nonempty text has no language", code="language"
+                )
+            offset = chunk.start / QWEN_SAMPLE_RATE
+            tokens = self._align(audio, text, language, offset, details)
+            if not any(
+                token.start is not None and token.end is not None for token in tokens
+            ):
+                raise TranscriptionError(
+                    "Nonempty ASR text has no timestamps", code="alignment"
+                )
+            builder.append(text, tokens, offset, chunk.end / QWEN_SAMPLE_RATE, language)
+        return builder.build(
+            len(waveform) / QWEN_SAMPLE_RATE,
+            "qwen3",
+            self.deployment.model("asr").repo_id,
+            self.deployment.model("aligner").repo_id,
+            {"chunks": diagnostics},
+        )

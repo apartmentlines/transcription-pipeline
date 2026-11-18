@@ -13,6 +13,7 @@ import tempfile
 import logging
 import threading
 import traceback
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -176,6 +177,15 @@ class PipelineConfigValidator:
         )
         if processing_limit is not None:
             kwargs["processing_limit"] = processing_limit
+        qwen_options = {}
+        for name in ("qwen_batch_size", "qwen_chunk_seconds"):
+            if name in data:
+                value = data[name]
+                if type(value) is not int:
+                    raise ValueError(f"{name} must be an integer")
+                qwen_options[name] = value
+        if qwen_options:
+            kwargs["deployment"] = replace(self.deployment, **qwen_options)
         download_queue_size: int | None = self._validate_positive_int(
             data.get("download_queue_size"), "download_queue_size"
         )

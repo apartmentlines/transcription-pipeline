@@ -32,11 +32,13 @@ Alternatively, set `TRANSCRIPTION_API_KEY` and `TRANSCRIPTION_DOMAIN`. Use `--he
 
 The seeded manifest selects the backend automatically. Runtime uses cached models and fails if required assets are missing. An optional `--backend` checks that the installation matches the requested backend.
 
-### Transcribing a local file
+### Transcribing local files
 
 ```bash
 transcriber recording.wav --output-dir ./output
 ```
+
+Pass multiple audio paths to share the Qwen engine across recordings. `--processing-limit`, `--qwen-batch-size`, and `--qwen-chunk-seconds` default to 4, 16, and 30 for Qwen and also work with `transcription-processor`; see the [configuration table](docs/deployment.md#qwen-shared-engine).
 
 Produces SRT; use `--output-format vtt` for WebVTT. `--community` and `--terminology` add recording-specific context.
 
@@ -91,7 +93,7 @@ docker login
 
 Images use `apartmentlinesproduction/transcription-pipeline-whisperx` and `apartmentlinesproduction/transcription-pipeline-qwen3`. Omit `-p` to build without publishing.
 
-See the [deployment guide](docs/deployment.md) for FlashAttention, supported GPUs and MIG, cache configuration, REST/RunPod, and troubleshooting.
+See the [deployment guide](docs/deployment.md) for the shared Qwen engine, GPU and MIG requirements, cache configuration, REST/RunPod, and troubleshooting.
 
 ## Development
 

@@ -47,9 +47,6 @@ class DeploymentSmokeTest:
             if importlib.util.find_spec("whisperx") is not None:
                 raise AssertionError("Qwen runtime unexpectedly contains WhisperX")
             DeploymentSmokeTest._qwen_processors(deployment)
-            if deployment.qwen_attention == "flash_attention_2":
-                importlib.import_module("flash_attn")
-                importlib.import_module("flash_attn_2_cuda")
         else:
             for module in (
                 "whisperx.asr",
@@ -108,12 +105,9 @@ class DeploymentSmokeTest:
             "torch": importlib.metadata.version("torch"),
             "transformers": importlib.metadata.version("transformers"),
             "pysubs2": importlib.metadata.version("pysubs2"),
-            "qwen_attention": (
-                deployment.qwen_attention if deployment.backend == "qwen3" else None
-            ),
-            "flash_attn": (
-                importlib.metadata.version("flash-attn")
-                if deployment.qwen_attention == "flash_attention_2"
+            "vllm": (
+                importlib.metadata.version("vllm")
+                if deployment.backend == "qwen3"
                 else None
             ),
             "offline_cpu_checks": "passed",

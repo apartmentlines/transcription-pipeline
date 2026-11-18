@@ -13,7 +13,7 @@ from transcription_pipeline.constants import (
     DEFAULT_COMMUNITY,
 )
 from ..backends.base import TranscriptionBackend
-from ..backends.factory import BackendFactory
+from ..backends.factory import BackendFactory, BackendSession
 from ..deployment import Deployment
 from ..errors import FailureCleanup
 from ..results import TranscriptionContext
@@ -21,7 +21,7 @@ from ..subtitles import SubtitleRenderer
 
 
 class TranscriptionProcessor(BaseProcessor):
-    """Load one backend per worker and reuse it for successive recordings."""
+    """Use the run's shared Qwen engine or a worker's reusable WhisperX backend."""
 
     renderer: SubtitleRenderer
 
@@ -30,13 +30,18 @@ class TranscriptionProcessor(BaseProcessor):
         deployment: Deployment,
         debug: bool = False,
         initialization_failed: Event | None = None,
+        backend_session: BackendSession | None = None,
     ) -> None:
         super().__init__(debug=debug)
         self.transcriber: TranscriptionBackend | None = None
         self.initialization_error: Exception | None = None
         self.renderer = SubtitleRenderer()
         try:
-            self.transcriber = BackendFactory.create(deployment, debug)
+            self.transcriber = (
+                backend_session.worker()
+                if backend_session is not None
+                else BackendFactory.create(deployment, debug)
+            )
         except Exception as exc:
             FailureCleanup.release_frames(exc)
             self.initialization_error = exc
@@ -46,7 +51,10 @@ class TranscriptionProcessor(BaseProcessor):
 
     @classmethod
     def bind(
-        cls, deployment: Deployment, initialization_failed: Event | None = None
+        cls,
+        deployment: Deployment,
+        initialization_failed: Event | None = None,
+        backend_session: BackendSession | None = None,
     ) -> type[BaseProcessor]:
         """Adapt immutable configuration to the framework's debug-only constructor."""
 
@@ -58,6 +66,7 @@ class TranscriptionProcessor(BaseProcessor):
                     deployment=deployment,
                     debug=debug,
                     initialization_failed=initialization_failed,
+                    backend_session=backend_session,
                 )
 
         return ConfiguredTranscriptionProcessor

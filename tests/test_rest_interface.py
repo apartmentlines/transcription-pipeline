@@ -72,6 +72,34 @@ def test_validator_instantiation(validator: PipelineConfigValidator):
     assert validator is not None
 
 
+def test_qwen_request_tuning_preserves_server_defaults(
+    validator: PipelineConfigValidator, minimal_valid_data: dict[str, Any]
+) -> None:
+    original = validator.deployment
+    kwargs, _ = validator.validate(
+        dict(
+            minimal_valid_data,
+            processing_limit=2,
+            qwen_batch_size=8,
+            qwen_chunk_seconds=60,
+        ),
+        None,
+    )
+    assert kwargs["processing_limit"] == 2
+    assert kwargs["deployment"].qwen_batch_size == 8
+    assert kwargs["deployment"].qwen_chunk_seconds == 60
+    assert validator.deployment is original
+    assert original.qwen_batch_size == 16 and original.qwen_chunk_seconds == 30
+
+
+@pytest.mark.parametrize("value", [True, 1.5, 0, 91])
+def test_invalid_qwen_request_chunk_size_is_rejected(
+    validator: PipelineConfigValidator, minimal_valid_data: dict[str, Any], value: Any
+) -> None:
+    with pytest.raises(ValueError):
+        validator.validate(dict(minimal_valid_data, qwen_chunk_seconds=value), None)
+
+
 def test_validate_minimal_success(
     validator: PipelineConfigValidator, minimal_valid_data: dict[str, Any]
 ):

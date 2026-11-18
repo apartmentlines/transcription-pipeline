@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from threading import Lock
+from typing import TYPE_CHECKING, cast, final
+
+if TYPE_CHECKING:
+    from .qwen3 import Qwen3Transcriber
+    from .qwen3_batching import SharedQwenTranscriber
+
 from ..deployment import Deployment
 from .base import TranscriptionBackend
 
@@ -19,3 +26,47 @@ class BackendFactory:
         from .qwen3 import Qwen3Transcriber
 
         return Qwen3Transcriber(deployment, debug)
+
+
+@final
+class BackendSession:
+    """Own one Qwen runtime per pipeline run; WhisperX remains worker-owned."""
+
+    def __init__(self, deployment: Deployment, debug: bool = False) -> None:
+        self.deployment = deployment
+        self.debug = debug
+        self.lock = Lock()
+        self.shared: SharedQwenTranscriber | None = None
+        self.failure: Exception | None = None
+        self.closed = False
+
+    def worker(self) -> TranscriptionBackend:
+        """Initialize shared models once even when worker threads start together."""
+        if self.deployment.backend == "whisperx":
+            return BackendFactory.create(self.deployment, self.debug)
+        from .qwen3_batching import SharedQwenTranscriber
+
+        with self.lock:
+            if self.closed:
+                raise RuntimeError("Backend session is closed")
+            if self.failure is not None:
+                raise self.failure
+            if self.shared is None:
+                try:
+                    backend = cast(
+                        "Qwen3Transcriber",
+                        BackendFactory.create(self.deployment, self.debug),
+                    )
+                    self.shared = SharedQwenTranscriber(backend)
+                except Exception as exc:
+                    self.failure = exc
+                    raise
+            return self.shared
+
+    def close(self) -> None:
+        """Finish the shared engine's work before releasing its model resources."""
+        with self.lock:
+            self.closed = True
+            shared = self.shared
+        if shared is not None:
+            shared.close()

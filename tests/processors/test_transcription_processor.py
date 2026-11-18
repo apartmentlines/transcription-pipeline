@@ -46,7 +46,7 @@ def test_bound_classes_do_not_share_mutable_backend_selection(
     deployment: Deployment, mock_transcriber: MagicMock
 ) -> None:
     first = TranscriptionProcessor.bind(deployment)
-    other = replace(deployment, backend="qwen3", qwen_attention="flash_attention_2")
+    other = replace(deployment, backend="qwen3", qwen_batch_size=8)
     second = TranscriptionProcessor.bind(other)
     first(debug=False)
     second(debug=True)

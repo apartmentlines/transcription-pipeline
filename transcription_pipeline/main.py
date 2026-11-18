@@ -40,6 +40,7 @@ from transcription_pipeline.utils import (
 )
 from transcription_pipeline.config import load_configuration, set_environment_variables
 from transcription_pipeline.deployment import Deployment, ManifestStore
+from transcription_pipeline.backends.factory import BackendSession
 
 
 class TranscriptionProcessingPipeline(ProcessingPipeline):
@@ -70,6 +71,7 @@ class TranscriptionPipeline:
     debug: bool
     initialization_failed: Event
     pipeline: ProcessingPipeline
+    backends: BackendSession
 
     def __init__(
         self,
@@ -86,6 +88,8 @@ class TranscriptionPipeline:
         backend: str | None = None,
         model_manifest: Path | None = None,
         deployment: Deployment | None = None,
+        qwen_batch_size: int | None = None,
+        qwen_chunk_seconds: int | None = None,
     ) -> None:
         self.log = Logger(self.__class__.__name__, debug=debug)
         self.api_key = api_key
@@ -93,7 +97,26 @@ class TranscriptionPipeline:
         self.limit = limit
         self.min_id = min_id
         self.max_id = max_id
-        self.deployment = deployment or ManifestStore.load(model_manifest, backend)
+        self.deployment = deployment or ManifestStore.load(
+            model_manifest,
+            backend,
+            qwen_batch_size=qwen_batch_size,
+            qwen_chunk_seconds=qwen_chunk_seconds,
+        )
+        if deployment is not None:
+            self.deployment = replace(
+                deployment,
+                qwen_batch_size=(
+                    qwen_batch_size
+                    if qwen_batch_size is not None
+                    else deployment.qwen_batch_size
+                ),
+                qwen_chunk_seconds=(
+                    qwen_chunk_seconds
+                    if qwen_chunk_seconds is not None
+                    else deployment.qwen_chunk_seconds
+                ),
+            )
         if backend is not None:
             self.deployment.assert_backend(backend)
         self.backend = self.deployment.backend
@@ -101,20 +124,22 @@ class TranscriptionPipeline:
         self.processing_limit = self.deployment.processing_limit(processing_limit)
         self.deployment = replace(self.deployment, worker_count=self.processing_limit)
         self.log.info(
-            f"Using backend={self.backend} with {self.processing_limit} workers"
+            f"Using backend={self.backend} with {self.processing_limit} recording workers"
+            + (" sharing one Qwen engine" if self.backend == "qwen3" else "")
         )
         self.download_queue_size = download_queue_size
         self.download_cache = download_cache
         self.simulate_downloads = simulate_downloads
         self.debug = debug
         self.initialization_failed = Event()
+        self.backends = BackendSession(self.deployment, debug)
         self.pipeline = self._initialize_pipeline()
 
     def _initialize_pipeline(self) -> ProcessingPipeline:
         return TranscriptionProcessingPipeline(
             pre_processor_class=TranscriptionPreProcessor,
             processor_class=TranscriptionProcessor.bind(
-                self.deployment, self.initialization_failed
+                self.deployment, self.initialization_failed, self.backends
             ),
             post_processor_class=TranscriptionPostProcessor,
             processing_limit=self.processing_limit,
@@ -180,7 +205,10 @@ class TranscriptionPipeline:
             return 0
         files = self.prepare_file_data(files)
         self.log.info("Starting pipeline execution")
-        exit_code = self.pipeline.run(files)
+        try:
+            exit_code = self.pipeline.run(files)
+        finally:
+            self.backends.close()
         if self.initialization_failed.is_set() and exit_code == 0:
             exit_code = 1
         self.log.info(f"Transcription pipeline completed with exit code {exit_code}")
@@ -227,6 +255,16 @@ def parse_arguments() -> argparse.Namespace:
         help="Maximum size of downloaded files queue, default %(default)s",
     )
     parser.add_argument(
+        "--qwen-batch-size",
+        type=positive_int,
+        help="Maximum active Qwen chunks (environment or default: 16)",
+    )
+    parser.add_argument(
+        "--qwen-chunk-seconds",
+        type=positive_int,
+        help="Qwen chunk duration, 1–90 seconds (environment or default: 30)",
+    )
+    parser.add_argument(
         "--download-cache",
         type=Path,
         default=DEFAULT_DOWNLOAD_CACHE,
@@ -269,6 +307,8 @@ def main() -> None:
         debug=args.debug,
         backend=args.backend,
         model_manifest=args.model_manifest,
+        qwen_batch_size=args.qwen_batch_size,
+        qwen_chunk_seconds=args.qwen_chunk_seconds,
     )
     sys.exit(pipeline.run())
 

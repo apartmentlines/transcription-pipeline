@@ -72,9 +72,9 @@ def test_auto_discovery_and_default_limit(
     monkeypatch.setenv("TRANSCRIPTION_MODEL_MANIFEST", str(manifest))
     deployment = ManifestStore.load()
     assert deployment.backend == "qwen3"
-    assert deployment.processing_limit() == 3
+    assert deployment.processing_limit() == 4
     assert deployment.processing_limit(2) == 2
-    assert deployment.qwen_attention == "sdpa"
+    assert deployment.qwen_batch_size == 16
     assert deployment.model("asr").path.is_dir()
 
 
@@ -106,7 +106,7 @@ def test_invalid_concurrency(manifest: Path, value: Any) -> None:
         {"schema_version": 2},
         {"schema_version": True},
         {"backend": "other"},
-        {"runtime": "vllm"},
+        {"runtime": "unknown"},
         {"models": {}},
         {"assets": []},
     ],
@@ -206,55 +206,35 @@ def test_environment_precision_and_device_resolve_once(
     assert explicit.precision == "bfloat16"
 
 
-def test_environment_attention_is_resolved_once(
+def test_qwen_tuning_cli_overrides_environment_and_defaults(
     manifest: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        "transcription_pipeline.deployment.importlib.util.find_spec",
-        Mock(return_value=object()),
-    )
-    monkeypatch.setenv("TRANSCRIPTION_QWEN_ATTENTION", "flash_attention_2")
-    deployment = ManifestStore.load(manifest)
-    monkeypatch.setenv("TRANSCRIPTION_QWEN_ATTENTION", "sdpa")
-    assert deployment.qwen_attention == "flash_attention_2"
-    assert "attention=flash_attention_2" in deployment.description()
-    assert ManifestStore.load(manifest).qwen_attention == "sdpa"
+    monkeypatch.setenv("TRANSCRIPTION_PROCESSING_LIMIT", "2")
+    monkeypatch.setenv("TRANSCRIPTION_QWEN_BATCH_SIZE", "8")
+    monkeypatch.setenv("TRANSCRIPTION_QWEN_CHUNK_SECONDS", "60")
+    config = ManifestStore.load(manifest)
+    assert config.processing_limit() == 2
+    assert config.processing_limit(4) == 4
+    assert (config.qwen_batch_size, config.qwen_chunk_seconds) == (8, 60)
+    explicit = ManifestStore.load(manifest, qwen_batch_size=16, qwen_chunk_seconds=30)
+    assert (explicit.qwen_batch_size, explicit.qwen_chunk_seconds) == (16, 30)
 
 
-@pytest.mark.parametrize("value", ["", "auto", "flash_attention_3", "typo"])
-def test_invalid_attention_is_rejected_before_workers(
-    manifest: Path, monkeypatch: pytest.MonkeyPatch, value: Any
-):
-    monkeypatch.setenv("TRANSCRIPTION_QWEN_ATTENTION", value)
-    with pytest.raises(ConfigurationError, match="must be sdpa or flash_attention_2"):
-        ManifestStore.load(manifest)
-
-
-def test_missing_optional_attention_dependency_fails_at_startup(
-    manifest: Path, monkeypatch: pytest.MonkeyPatch
-):
-    monkeypatch.setenv("TRANSCRIPTION_QWEN_ATTENTION", "flash_attention_2")
-    monkeypatch.setattr(
-        "transcription_pipeline.deployment.importlib.util.find_spec",
-        Mock(return_value=None),
-    )
-    with pytest.raises(ConfigurationError, match="runtime-flash-attention"):
-        ManifestStore.load(manifest)
-
-
-def test_whisperx_ignores_qwen_attention_environment(
-    deployment: Deployment, monkeypatch: pytest.MonkeyPatch
-):
-    monkeypatch.setenv("TRANSCRIPTION_QWEN_ATTENTION", "flash_attention_2")
-    monkeypatch.setattr(Path, "read_text", Mock(return_value="{}"))
-    monkeypatch.setattr(ManifestStore, "validate", Mock(return_value=deployment))
-    monkeypatch.setattr(ManifestStore, "validate_dependencies", Mock(return_value=None))
-    assert ManifestStore.load().qwen_attention == "sdpa"
-
-
-def test_direct_deployment_rejects_unknown_attention(deployment: Deployment):
-    with pytest.raises(ConfigurationError, match="must be sdpa or flash_attention_2"):
-        replace(deployment, qwen_attention="typo")
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"qwen_batch_size": 0},
+        {"qwen_batch_size": True},
+        {"qwen_chunk_seconds": 0},
+        {"qwen_chunk_seconds": 91},
+        {"qwen_chunk_seconds": 1.5},
+    ],
+)
+def test_invalid_qwen_tuning_rejected_before_inference(
+    deployment: Deployment, options: dict[str, Any]
+) -> None:
+    with pytest.raises(ConfigurationError):
+        replace(deployment, **options)
 
 
 def test_application_imports_without_either_inference_stack() -> None:

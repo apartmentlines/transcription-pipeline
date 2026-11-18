@@ -1,4 +1,4 @@
-"""Contract implemented by each worker-owned inference backend."""
+"""Per-recording contract for shared and worker-owned inference backends."""
 
 from __future__ import annotations
 

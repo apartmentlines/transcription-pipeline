@@ -17,19 +17,18 @@ from transcription_pipeline.constants import (
     BACKENDS,
     DEFAULT_INFERENCE_DEVICE,
     DEFAULT_INFERENCE_PRECISION,
-    DEFAULT_QWEN_ATTENTION,
     LANGUAGE_NAMES,
     MANIFEST_SCHEMA_VERSION,
     PROCESSING_LIMITS,
     PUNKT_PARAMETER_FILES,
-    QWEN_ATTENTION_IMPLEMENTATIONS,
+    QWEN_BATCH_SIZE,
+    QWEN_MAX_CHUNK_SECONDS,
     WHISPERX_BATCH_SIZE,
     WHISPERX_NUM_SPEAKERS,
 )
 from .errors import ConfigurationError
 
 BackendName = Literal["whisperx", "qwen3"]
-QwenAttention = Literal["sdpa", "flash_attention_2"]
 
 
 @dataclass(frozen=True)
@@ -54,13 +53,19 @@ class Deployment:
     whisperx_batch_size: int = WHISPERX_BATCH_SIZE
     whisperx_num_speakers: int = WHISPERX_NUM_SPEAKERS
     worker_count: int = 1
-    qwen_attention: QwenAttention = DEFAULT_QWEN_ATTENTION
+    qwen_batch_size: int = QWEN_BATCH_SIZE
+    qwen_chunk_seconds: int = QWEN_MAX_CHUNK_SECONDS
 
     def __post_init__(self) -> None:
-        """Reject unsupported attention implementations before worker creation."""
-        if self.qwen_attention not in QWEN_ATTENTION_IMPLEMENTATIONS:
+        """Reject invalid batching and windows beyond the aligner's retry capacity."""
+        if type(self.qwen_batch_size) is not int or self.qwen_batch_size < 1:
+            raise ConfigurationError("qwen_batch_size must be a positive integer")
+        if (
+            type(self.qwen_chunk_seconds) is not int
+            or not 1 <= self.qwen_chunk_seconds <= 90
+        ):
             raise ConfigurationError(
-                "TRANSCRIPTION_QWEN_ATTENTION must be sdpa or flash_attention_2"
+                "qwen_chunk_seconds must be an integer from 1 to 90"
             )
 
     def description(self) -> str:
@@ -68,12 +73,12 @@ class Deployment:
         models = ", ".join(
             f"{model.role}={model.repo_id}@{model.revision}" for model in self.models
         )
-        attention = (
-            f" attention={self.qwen_attention}" if self.backend == "qwen3" else ""
+        runtime = (
+            f" runtime=vllm batch_size={self.qwen_batch_size} chunk_seconds={self.qwen_chunk_seconds}"
+            if self.backend == "qwen3"
+            else ""
         )
-        return (
-            f"manifest={self.manifest_path} backend={self.backend}{attention} {models}"
-        )
+        return f"manifest={self.manifest_path} backend={self.backend}{runtime} {models}"
 
     def model(self, role: str) -> ModelAsset:
         """Return a required model or report an installation error."""
@@ -85,7 +90,15 @@ class Deployment:
     def processing_limit(self, override: int | None = None) -> int:
         """Resolve concurrency once, with explicit positive overrides."""
         if override is None:
-            return PROCESSING_LIMITS[self.backend]
+            value = os.environ.get("TRANSCRIPTION_PROCESSING_LIMIT")
+            if value is None:
+                return PROCESSING_LIMITS[self.backend]
+            try:
+                override = int(value)
+            except ValueError as exc:
+                raise ConfigurationError(
+                    "TRANSCRIPTION_PROCESSING_LIMIT must be a positive integer"
+                ) from exc
         if type(override) is not int or override <= 0:
             raise ConfigurationError("processing_limit must be a positive integer")
         return override
@@ -160,7 +173,9 @@ class ManifestStore:
         """Check packages without importing either heavy inference implementation."""
         required = ["torch", "numpy", "nltk", "pysubs2"]
         required += (
-            ["whisperx"] if backend == "whisperx" else ["transformers", "accelerate"]
+            ["whisperx"]
+            if backend == "whisperx"
+            else ["transformers", "accelerate", "vllm"]
         )
         missing = [name for name in required if importlib.util.find_spec(name) is None]
         if missing:
@@ -177,6 +192,8 @@ class ManifestStore:
         *,
         device: str | None = None,
         precision: str | None = None,
+        qwen_batch_size: int | None = None,
+        qwen_chunk_seconds: int | None = None,
     ) -> Deployment:
         """Read and validate one manifest before work retrieval or GPU loading."""
         manifest_path = cls.resolve_path(path)
@@ -200,25 +217,25 @@ class ManifestStore:
         if assertion is not None:
             deployment.assert_backend(assertion)
         if deployment.backend == "qwen3":
-            deployment = replace(
-                deployment,
-                qwen_attention=cast(
-                    QwenAttention,
-                    os.environ.get(
-                        "TRANSCRIPTION_QWEN_ATTENTION", DEFAULT_QWEN_ATTENTION
-                    ),
-                ),
-            )
-            if (
-                deployment.qwen_attention == "flash_attention_2"
-                and importlib.util.find_spec("flash_attn") is None
+            settings = {}
+            for name, explicit in (
+                ("qwen_batch_size", qwen_batch_size),
+                ("qwen_chunk_seconds", qwen_chunk_seconds),
             ):
-                raise ConfigurationError(
-                    "FlashAttention 2 was selected but flash-attn is missing; use the "
-                    + "Qwen runtime-flash-attention image target or install "
-                    + "requirements-qwen3-flash-attention.txt. "
-                    + "Set TRANSCRIPTION_QWEN_ATTENTION=sdpa to use PyTorch attention"
-                )
+                value = os.environ.get(f"TRANSCRIPTION_{name.upper()}")
+                try:
+                    settings[name] = (
+                        explicit
+                        if explicit is not None
+                        else (
+                            int(value)
+                            if value is not None
+                            else getattr(deployment, name)
+                        )
+                    )
+                except ValueError as exc:
+                    raise ConfigurationError(f"{name} must be an integer") from exc
+            deployment = replace(deployment, **settings)
         cls.validate_dependencies(deployment.backend)
         logging.getLogger(__name__).info(
             "Deployment %s: backend=%s models=%s",
@@ -245,9 +262,9 @@ class ManifestStore:
         ):
             raise ConfigurationError("Unsupported manifest schema or backend")
         backend = cast(BackendName, data["backend"])
-        runtime = "transformers" if backend == "qwen3" else "whisperx"
-        if data.get("runtime") != runtime:
-            raise ConfigurationError(f"Expected manifest runtime {runtime}")
+        runtimes = ("vllm", "transformers") if backend == "qwen3" else ("whisperx",)
+        if data.get("runtime") not in runtimes:
+            raise ConfigurationError(f"Expected manifest runtime in {runtimes}")
         if precision not in ("bfloat16", "float16"):
             raise ConfigurationError("precision must be bfloat16 or float16")
         if not re.fullmatch(r"cuda(?::\d+)?", device):

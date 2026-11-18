@@ -5,7 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from pathlib import Path
+from threading import local
 from typing import Literal, cast
 
 from transcription_pipeline.constants import (
@@ -14,11 +17,14 @@ from transcription_pipeline.constants import (
     DEFAULT_INFERENCE_PRECISION,
     DEFAULT_TERMINOLOGY,
 )
-from .backends.factory import BackendFactory
+from .backends.factory import BackendSession
 from .deployment import ManifestStore
 from .results import TranscriptionContext
 from .result_metadata import ResultMetadata
 from .subtitles import SubtitleRenderer
+from .backends.base import TranscriptionBackend
+from .errors import ConfigurationError, TranscriptionError
+from .utils import positive_int
 
 
 class TranscriptionCommand:
@@ -28,7 +34,24 @@ class TranscriptionCommand:
     def parser() -> argparse.ArgumentParser:
         """Define output and deployment options before loading any models."""
         parser = argparse.ArgumentParser(description=__doc__)
-        parser.add_argument("audio", type=Path, help="Input audio recording")
+        parser.add_argument(
+            "audio", type=Path, nargs="+", help="Input audio recordings"
+        )
+        parser.add_argument(
+            "--processing-limit",
+            type=positive_int,
+            help="Concurrent recordings (environment or backend default)",
+        )
+        parser.add_argument(
+            "--qwen-batch-size",
+            type=positive_int,
+            help="Maximum active Qwen chunks (environment or default: 16)",
+        )
+        parser.add_argument(
+            "--qwen-chunk-seconds",
+            type=positive_int,
+            help="Qwen chunk duration, 1–90 seconds (environment or default: 30)",
+        )
         parser.add_argument(
             "--backend",
             choices=("whisperx", "qwen3"),
@@ -79,17 +102,69 @@ class TranscriptionCommand:
         return parser
 
     @staticmethod
-    def run(args: argparse.Namespace) -> Path:
+    def run(args: argparse.Namespace) -> list[Path]:
         """Validate the deployment, transcribe, and write UTF-8 artifacts."""
         deployment = ManifestStore.load(
             args.model_manifest,
             args.backend,
             device=args.device,
             precision=args.precision,
+            qwen_batch_size=args.qwen_batch_size,
+            qwen_chunk_seconds=args.qwen_chunk_seconds,
         )
-        backend = BackendFactory.create(deployment, args.debug)
+        deployment = replace(
+            deployment, worker_count=deployment.processing_limit(args.processing_limit)
+        )
+        names = [
+            source.with_suffix(f".{args.output_format}").name for source in args.audio
+        ]
+        if len(set(names)) != len(names):
+            raise ConfigurationError(
+                "Input recordings would overwrite the same output file"
+            )
+        session = BackendSession(deployment, args.debug)
+        workers = local()
+
+        def process(source: Path) -> Path:
+            if not hasattr(workers, "backend"):
+                workers.backend = session.worker()
+            return TranscriptionCommand._write(source, workers.backend, args)
+
+        destinations = []
+        failures = []
+        try:
+            with ThreadPoolExecutor(
+                max_workers=min(deployment.worker_count, len(args.audio))
+            ) as executor:
+                futures = {
+                    executor.submit(process, source): source for source in args.audio
+                }
+                for future in as_completed(futures):
+                    try:
+                        destinations.append(future.result())
+                    except Exception as exc:
+                        logging.getLogger(__name__).error(
+                            "Transcription failed for %s: %s", futures[future], exc
+                        )
+                        failures.append(exc)
+        finally:
+            session.close()
+        if failures:
+            if len(args.audio) == 1:
+                raise failures[0]
+            raise TranscriptionError(
+                f"{len(failures)} of {len(args.audio)} recordings failed",
+                code="inference",
+            )
+        return sorted(destinations)
+
+    @staticmethod
+    def _write(
+        source: Path, backend: TranscriptionBackend, args: argparse.Namespace
+    ) -> Path:
+        """Write each completed recording independently of failures in other jobs."""
         result = backend.transcribe(
-            args.audio, TranscriptionContext(args.community, args.terminology)
+            source, TranscriptionContext(args.community, args.terminology)
         )
         renderer = SubtitleRenderer()
         contents = renderer.render(
@@ -97,7 +172,7 @@ class TranscriptionCommand:
         )
         args.output_dir.mkdir(parents=True, exist_ok=True)
         destination = (
-            args.output_dir / args.audio.with_suffix(f".{args.output_format}").name
+            args.output_dir / source.with_suffix(f".{args.output_format}").name
         )
         destination.write_text(contents, encoding="utf-8")
         if args.debug_output:
@@ -118,11 +193,12 @@ def main() -> None:
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
     try:
-        destination = TranscriptionCommand.run(args)
+        destinations = TranscriptionCommand.run(args)
     except Exception as exc:
         parser.exit(1, f"Transcription failed: {exc}\n")
     else:
-        logging.getLogger(__name__).info("Saved subtitles to %s", destination)
+        for destination in destinations:
+            logging.getLogger(__name__).info("Saved subtitles to %s", destination)
 
 
 if __name__ == "__main__":

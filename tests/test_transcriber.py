@@ -124,12 +124,12 @@ def test_standalone_shared_output_and_debug_artifacts(
     factory = Mock()
     factory.return_value.transcribe.return_value = sample_transcription_result
     monkeypatch.setattr(
-        "transcription_pipeline.transcriber.BackendFactory.create", factory
+        "transcription_pipeline.backends.factory.BackendFactory.create", factory
     )
     args = TranscriptionCommand.parser().parse_args(
         ["audio.wav", "--output-dir", str(tmp_path), "--debug-output"]
     )
-    destination = TranscriptionCommand.run(args)
+    destination = TranscriptionCommand.run(args)[0]
     assert (
         destination.read_text() == "1\n00:00:00,000 --> 00:00:02,000\nHello world\n\n"
     )
@@ -163,13 +163,56 @@ def test_unsupported_format_rejected_before_model_loading(
 ) -> None:
     factory = Mock()
     monkeypatch.setattr(
-        "transcription_pipeline.transcriber.BackendFactory.create", factory
+        "transcription_pipeline.backends.factory.BackendFactory.create", factory
     )
     with pytest.raises(SystemExit):
         TranscriptionCommand.parser().parse_args(
             ["audio.wav", "--output-format", "pdf"]
         )
     factory.assert_not_called()
+
+
+@pytest.mark.usefixtures("sentence_tokenizer")
+def test_standalone_batch_writes_successful_files_when_another_fails(
+    deployment: Deployment,
+    sample_transcription_result: TranscriptionResult,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    backend = Mock()
+
+    def transcribe(source: Path, _context: TranscriptionContext) -> TranscriptionResult:
+        if source.name == "bad.wav":
+            raise TranscriptionError("bad recording")
+        return sample_transcription_result
+
+    backend.transcribe.side_effect = transcribe
+    monkeypatch.setattr(
+        "transcription_pipeline.deployment.ManifestStore.load",
+        Mock(return_value=deployment),
+    )
+    monkeypatch.setattr(
+        "transcription_pipeline.backends.factory.BackendFactory.create",
+        Mock(return_value=backend),
+    )
+    args = TranscriptionCommand.parser().parse_args(
+        [
+            "good.wav",
+            "bad.wav",
+            "--processing-limit",
+            "2",
+            "--qwen-batch-size",
+            "8",
+            "--qwen-chunk-seconds",
+            "60",
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+    with pytest.raises(TranscriptionError, match="1 of 2"):
+        TranscriptionCommand.run(args)
+    assert (tmp_path / "good.srt").is_file()
+    assert not (tmp_path / "bad.srt").exists()
 
 
 def test_workers_can_initialize_cached_models_concurrently(

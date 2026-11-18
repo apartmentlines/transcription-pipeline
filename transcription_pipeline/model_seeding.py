@@ -118,7 +118,7 @@ class ModelInstaller:
         manifest = {
             "schema_version": MANIFEST_SCHEMA_VERSION,
             "backend": backend,
-            "runtime": "transformers" if backend == "qwen3" else "whisperx",
+            "runtime": "vllm" if backend == "qwen3" else "whisperx",
             "models": models,
             "assets": assets + cls.punkt(),
         }

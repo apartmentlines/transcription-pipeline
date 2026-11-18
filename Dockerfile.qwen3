@@ -6,9 +6,10 @@ ENV PATH=/opt/venv/bin:${PATH} \
     HF_HOME=/opt/models/huggingface \
     TORCH_HOME=/opt/models/torch \
     NLTK_DATA=/opt/models/nltk \
-    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    VLLM_WORKER_MULTIPROC_METHOD=spawn VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl ffmpeg libgomp1 libsndfile1 openssh-server procps \
+    ca-certificates curl ffmpeg gcc g++ libc6-dev libgomp1 libsndfile1 openssh-server procps \
     && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL -o /usr/local/bin/runpodctl https://github.com/runpod/runpodctl/releases/download/v3.0.1/runpodctl-linux-amd64 \
     && chmod 755 /usr/local/bin/runpodctl
@@ -64,13 +65,5 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install -r /tmp/requirements-dev.txt \
     && python -m pip check
 COPY tests ./tests
-
-FROM application AS runtime-flash-attention
-COPY requirements-qwen3-flash-attention.txt /tmp/requirements-qwen3-flash-attention.txt
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install --no-deps --only-binary=:all: --require-hashes -r /tmp/requirements-qwen3-flash-attention.txt \
-    && python -m pip check \
-    && python -c 'import torch, flash_attn, flash_attn_2_cuda; print(flash_attn.__version__)'
-ENV TRANSCRIPTION_QWEN_ATTENTION=flash_attention_2
 
 FROM application AS runtime

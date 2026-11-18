@@ -36,7 +36,7 @@ rest-interface = "transcription_pipeline.rest_interface:main"
 
 [project.optional-dependencies]
 whisperx = ["whisperx==3.8.6"]
-qwen3 = ["transformers==5.22.2", "torch==2.8.0", "accelerate==1.15.0", "librosa==0.11.0", "soundfile==0.13.1"]
+qwen3 = ["vllm[audio]==0.34.0", "transformers==5.22.2", "torch==2.14.0", "accelerate==1.15.0", "librosa==0.11.0", "soundfile==0.13.1"]
 dev = [
     "pytest",
     "black",
