@@ -31,7 +31,11 @@ class TranscriptionContext:
 
 @dataclass(frozen=True)
 class TimedWord:
-    """One complete display token referencing authoritative text."""
+    """One authoritative text span with observed or inferred timing.
+
+    Equal boundaries preserve a model's point observation; they do not imply
+    a positive display interval. Subtitle cues enforce that separate contract.
+    """
 
     char_start: int
     char_end: int
@@ -44,7 +48,7 @@ class TimedWord:
 
 @dataclass(frozen=True)
 class SourceSegment:
-    """A source speech interval, independent of subtitle formatting."""
+    """An estimated source speech range, possibly a point, before display layout."""
 
     char_start: int
     char_end: int
@@ -93,7 +97,7 @@ class TranscriptionResult:
                 raise TranscriptionError("Invalid text span ordering", code="alignment")
             if self.text[cursor : word.char_start].strip():
                 raise TranscriptionError("Unowned transcript text", code="alignment")
-            self.validate_interval(word.start, word.end, self.audio_duration)
+            self.validate_alignment_interval(word.start, word.end, self.audio_duration)
             if word.start < previous_start:
                 raise TranscriptionError("Reordered word timestamps", code="alignment")
             if word.score is not None and not (
@@ -104,6 +108,11 @@ class TranscriptionResult:
             cursor = word.char_end
         if self.text[cursor:].strip():
             raise TranscriptionError("Unowned transcript tail", code="alignment")
+        if not any(word.start < word.end for word in self.words):
+            raise TranscriptionError(
+                "Nonempty transcript has no positive alignment intervals",
+                code="alignment",
+            )
         previous_start = 0.0
         cursor = 0
         for segment in self.segments:
@@ -112,7 +121,9 @@ class TranscriptionResult:
             if self.text[cursor : segment.char_start].strip():
                 raise TranscriptionError("Unowned source text", code="alignment")
             cursor = segment.char_end
-            self.validate_interval(segment.start, segment.end, self.audio_duration)
+            self.validate_alignment_interval(
+                segment.start, segment.end, self.audio_duration
+            )
             if segment.start < previous_start:
                 raise TranscriptionError("Reordered source segments", code="alignment")
             previous_start = segment.start
@@ -124,16 +135,25 @@ class TranscriptionResult:
             raise TranscriptionError("Unsupported language", code="language")
 
     @staticmethod
-    def validate_interval(start: float, end: float, duration: float) -> None:
-        """Validate a positive finite interval within the original audio."""
+    def validate_alignment_interval(start: float, end: float, duration: float) -> None:
+        """Validate finite native observations, including equal boundaries."""
         if not (
             math.isfinite(start)
             and math.isfinite(end)
-            and 0 <= start < end <= duration + TIMESTAMP_TOLERANCE
+            and 0 <= start <= end <= duration + TIMESTAMP_TOLERANCE
         ):
             raise TranscriptionError(
-                "Invalid alignment timestamp interval", code="timing"
+                f"Invalid alignment timestamp interval: start={start}, "
+                + f"end={end}, duration={duration}",
+                code="timing",
             )
+
+    @classmethod
+    def validate_interval(cls, start: float, end: float, duration: float) -> None:
+        """Validate a positive source window; native word observations may be points."""
+        cls.validate_alignment_interval(start, end, duration)
+        if start == end:
+            raise TranscriptionError("Empty source interval", code="timing")
 
     def metadata(self, subtitle_cue_count: int) -> dict[str, Any]:
         """Map results to the recursively merged application metadata contract.
@@ -224,7 +244,9 @@ class TextReconciler:
                         "Invalid alignment timestamp", code="timing"
                     )
             if token.start is not None and token.end is not None:
-                TranscriptionResult.validate_interval(token.start, token.end, end)
+                TranscriptionResult.validate_alignment_interval(
+                    token.start, token.end, end
+                )
                 if token.start < start:
                     raise TranscriptionError(
                         "Alignment precedes source interval", code="timing"
@@ -281,7 +303,7 @@ class TextReconciler:
                     score=sum(scores) / len(scores) if scores else None,
                 )
             )
-        if not any(word is not None for word in words):
+        if not any(word is not None and word.start < word.end for word in words):
             raise TranscriptionError(
                 "Nonempty transcript has no timed alignment anchors", code="alignment"
             )
@@ -315,7 +337,7 @@ class TextReconciler:
             following = words[stop] if stop < len(words) else None
             left = previous.end if previous else start
             right = following.start if following else end
-            if right <= left:
+            if right < left:
                 raise TranscriptionError(
                     "No interval for unaligned words", code="alignment"
                 )
@@ -417,6 +439,9 @@ class ResultBuilder:
             word.provenance == "inferred" for word in self.words
         )
         details["unaligned_word_count"] = details["alignment_warnings"]
+        details["zero_duration_word_count"] = sum(
+            word.start == word.end for word in self.words
+        )
         details["last_aligned_word_end"] = max(
             (word.end for word in self.words if word.provenance == "aligned"),
             default=None,

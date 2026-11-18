@@ -51,14 +51,20 @@ def whisperx_backend(
     return WhisperXTranscriber(deployment), whisperx, audio
 
 
-def test_whisperx_transcribes_and_reuses_models(whisperx_backend: Any) -> None:
+@pytest.mark.parametrize("first_end", [0, 1])
+def test_whisperx_transcribes_and_reuses_models(
+    whisperx_backend: Any, first_end: float
+) -> None:
     backend, whisperx, path = whisperx_backend
+    whisperx.align.return_value["segments"][0]["words"][0]["end"] = first_end
     for _ in range(2):
         result = backend.transcribe(
             path, TranscriptionContext("Test Apartments", "HVAC")
         )
         assert result.text == "Hello, world!"
         assert result.metadata(1)["average_word_confidence"] == 0.9
+        assert result.words[0].end == first_end
+        assert result.words[0].provenance == "aligned"
     assert whisperx.load_model.call_count == 1
     assert whisperx.load_align_model.call_count == 1
     assert whisperx.load_model.call_args.kwargs["local_files_only"] is True

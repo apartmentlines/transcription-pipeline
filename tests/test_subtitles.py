@@ -67,23 +67,30 @@ def test_serializer_preserves_literal_text(text: str, format_: str) -> None:
         assert contents.startswith("WEBVTT")
 
 
-def test_unaligned_word_retained_with_bounded_inference() -> None:
+@pytest.mark.parametrize("following_start", [1, 2])
+def test_unaligned_word_retained_with_bounded_inference(following_start: float) -> None:
     words = TextReconciler.reconcile(
         "Hello missing world",
         [
             AlignmentToken("Hello", 0, 1),
             AlignmentToken("missing"),
-            AlignmentToken("world", 2, 3),
+            AlignmentToken("world", following_start, 3),
         ],
         0,
         3,
     )
     assert words[1].provenance == "inferred"
-    assert (words[1].start, words[1].end) == (1, 2)
+    assert (words[1].start, words[1].end) == (1, following_start)
 
 
 @pytest.mark.parametrize(
-    "tokens", [[], [AlignmentToken("hello")], [AlignmentToken("different", 0, 1)]]
+    "tokens",
+    [
+        [],
+        [AlignmentToken("hello")],
+        [AlignmentToken("different", 0, 1)],
+        [AlignmentToken("hello", 0, 0), AlignmentToken("world", 0, 0)],
+    ],
 )
 def test_unusable_alignment_fails(tokens: list[AlignmentToken]) -> None:
     with pytest.raises(TranscriptionError):
@@ -91,29 +98,98 @@ def test_unusable_alignment_fails(tokens: list[AlignmentToken]) -> None:
 
 
 @pytest.mark.parametrize(
-    "start,end", [(-1, 1), (0, 0), (2, 1), (0, float("inf")), (float("nan"), 1), (0, 4)]
+    "start,end", [(-1, 1), (2, 1), (0, float("inf")), (float("nan"), 1), (0, 4)]
 )
 def test_invalid_timestamps_fail(start: float, end: float) -> None:
     with pytest.raises(TranscriptionError):
         TextReconciler.reconcile("hello", [AlignmentToken("hello", start, end)], 0, 3)
 
 
-def test_long_pause_and_speaker_change_force_breaks() -> None:
+@pytest.mark.parametrize("speaker", [None, "B"])
+def test_supplied_speakers_take_priority_over_pause_boundaries(
+    speaker: str | None,
+) -> None:
     builder = ResultBuilder()
     builder.append(
         "Hello there world",
         [
             AlignmentToken("Hello", 0, 0.2, "A"),
-            AlignmentToken("there", 0.3, 0.5, "B"),
-            AlignmentToken("world", 3, 4, "B"),
+            AlignmentToken("there", 0.3, 0.5, speaker),
+            AlignmentToken("world", 3, 4, speaker),
         ],
         0,
         4,
         "en",
     )
     cues = SubtitleRenderer().cues(builder.build(4, "whisperx", "asr", "align"))
-    assert len(cues) == 3
-    assert [cue.text for cue in cues] == ["[A] Hello", "[B] there", "[B] world"]
+    assert [cue.text for cue in cues] == (
+        ["[A] Hello", "[B] there world"] if speaker else ["[A] Hello", "there", "world"]
+    )
+
+
+def test_long_model_labelled_turn_is_not_split_by_sentences_or_length() -> None:
+    """Keep a known speaker's whole turn even beyond the former width/time limits."""
+    text = "The maintenance person checked the sink yesterday. There is still a lot of water underneath it today. Please send someone to check it again."
+    tokens = [
+        AlignmentToken(word, index, index + 0.5, "A")
+        for index, word in enumerate(text.split())
+    ]
+    builder = ResultBuilder()
+    builder.append(text, tokens, 0, len(tokens), "en")
+    result = builder.build(len(tokens), "whisperx", "asr", "aligner")
+    assert [cue.text for cue in SubtitleRenderer().cues(result)] == [f"[A] {text}"]
+
+
+def test_short_call_exchange_preserves_sentences_including_collapsed_name() -> None:
+    """Regression for blocks 18–23: real sentence times, with names anonymized."""
+    sentences = [
+        ("All right, hon.", 43.28, 43.76),
+        ("What's your apartment number?", 43.76, 44.72),
+        ("Seven twenty eight.", 45.76, 46.64),
+        ("And your name and phone number.", 47.44, 48.64),
+        ("Maria.", 49.52, 49.52),
+        ("Is my phone number you said?", 49.92, 52.08),
+        ("Yes, ma'am.", 52.56, 53.12),
+        ("Maria Lopez.", 54.08, 55.12),
+    ]
+    builder = ResultBuilder()
+    builder.append(
+        " ".join(text for text, _, _ in sentences),
+        [AlignmentToken(text, start, end) for text, start, end in sentences],
+        43,
+        56,
+        "en",
+        derive_speech_bounds=True,
+    )
+    result = builder.build(67.54, "qwen3", "asr", "aligner")
+    before = result.metadata(0)
+    cues = SubtitleRenderer().cues(result)
+    assert [cue.text for cue in cues] == [text for text, _, _ in sentences]
+    assert (cues[4].start, cues[4].end) == (49520, 49920)
+    assert all(left.end <= right.start for left, right in zip(cues, cues[1:]))
+    assert all(cue.start < cue.end for cue in cues)
+    assert all(word.speaker is None for word in result.words)
+    assert result.metadata(0) == before
+
+
+def test_unlabelled_source_segments_are_not_joined_without_punctuation() -> None:
+    """Retain backend boundaries even when no punctuation or speaker ID was supplied."""
+    builder = ResultBuilder()
+    builder.append(
+        "your apartment number",
+        [AlignmentToken("your apartment number", 0, 1)],
+        0,
+        1,
+        "en",
+    )
+    builder.append(
+        "seven twenty eight", [AlignmentToken("seven twenty eight", 1, 2)], 1, 2, "en"
+    )
+    result = builder.build(2, "whisperx", "asr", "aligner")
+    assert [cue.text for cue in SubtitleRenderer().cues(result)] == [
+        "your apartment number",
+        "seven twenty eight",
+    ]
 
 
 def test_rounding_collapse_merges_without_losing_words() -> None:
@@ -131,6 +207,44 @@ def test_rounding_collapse_merges_without_losing_words() -> None:
     assert len(cues) == 1
     assert cues[0].text == "hello tail"
     assert cues[0].end > cues[0].start
+
+
+@pytest.mark.parametrize(
+    "intervals",
+    [
+        [(0, 0), (2, 3)],
+        [(0, 1), (1, 1), (1, 2)],
+        [(0, 1), (3, 3)],
+        [(0, 1), (3, 3), (5, 6)],
+        [(0.9996, 0.9997)],
+        [(0, 3), (2, 4)],
+    ],
+)
+def test_native_points_only_change_cue_layout(
+    intervals: list[tuple[float, float]],
+) -> None:
+    """Protect native observations, EOF rounding, and speaker labels during layout."""
+    tokens = [
+        AlignmentToken(f"word{index}", start, end, f"speaker{index}", 0.9)
+        for index, (start, end) in enumerate(intervals)
+    ]
+    text = " ".join(token.text for token in tokens)
+    duration = max(1, intervals[-1][1])
+    builder = ResultBuilder()
+    builder.append(text, tokens, 0, duration, "en", derive_speech_bounds=True)
+    result = builder.build(duration, "whisperx", "asr", "aligner")
+    before = result.metadata(0)
+    cues = SubtitleRenderer(SubtitleConfig(max_characters=1)).cues(result)
+    assert len(cues) == len(tokens)
+    assert all(0 <= cue.start < cue.end <= duration * 1000 for cue in cues)
+    assert all(left.end <= right.start for left, right in zip(cues, cues[1:]))
+    assert " ".join(cue.text for cue in cues) == " ".join(
+        f"[{token.speaker}] {token.text}" for token in tokens
+    )
+    assert [(word.start, word.end) for word in result.words] == intervals
+    assert result.metadata(0) == before
+    assert before["average_word_confidence"] == pytest.approx(0.9)
+    assert before["unaligned_word_count"] == 0
 
 
 def test_metadata_source_intervals_are_independent_of_cues(

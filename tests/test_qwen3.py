@@ -19,7 +19,11 @@ from transcription_pipeline.deployment import Deployment
 from transcription_pipeline.backends.qwen3 import AudioChunker, Qwen3Transcriber
 from transcription_pipeline.deployment import ModelAsset
 from transcription_pipeline.errors import ConfigurationError, TranscriptionError
-from transcription_pipeline.results import AlignmentToken, TranscriptionContext
+from transcription_pipeline.results import (
+    AlignmentToken,
+    ResultBuilder,
+    TranscriptionContext,
+)
 
 
 @pytest.fixture
@@ -393,6 +397,85 @@ def test_aligner_api_and_timestamp_offset(
     assert (
         decode["timestamp_token_id"] is backend.aligner_model.config.timestamp_token_id
     )
+
+
+@pytest.mark.parametrize(
+    "intervals",
+    [
+        [(0, 1), (1, 1), (1, 2)],
+        [(0, 1), (1, 1), (1, 1), (1, 2)],
+        [(0, 0), (0, 0), (0, 2)],
+        [(0, 2), (2, 2), (2, 2)],
+        [(0, 0.5), (1, 1), (1.5, 2)],
+    ],
+)
+def test_collapsed_qwen_timestamps_preserve_text_and_bounded_timing(
+    qwen: tuple[Qwen3Transcriber, Mock, Mock],
+    intervals: list[tuple[float, float]],
+) -> None:
+    backend, _, _ = qwen
+    offset = 179.99
+    original = [
+        AlignmentToken(f"word{index}", start + offset, end + offset)
+        for index, (start, end) in enumerate(intervals)
+    ]
+    inputs = MagicMock()
+    inputs.get.return_value.sum.return_value.item.return_value = 200
+    inputs.to.return_value = inputs
+    backend.aligner_processor.feature_extractor.hop_length = 160
+    backend.aligner_processor.prepare_forced_aligner_inputs.return_value = (
+        inputs,
+        [[token.text for token in original]],
+    )
+    text = " ".join(token.text for token in original)
+    backend.aligner_processor.decode_forced_alignment.return_value = [
+        [
+            {"text": token.text, "start_time": start, "end_time": end}
+            for token, (start, end) in zip(original, intervals)
+        ]
+    ]
+    tokens = backend._align(
+        np.zeros(2 * QWEN_SAMPLE_RATE, dtype=np.float32), text, "en", offset
+    )
+    builder = ResultBuilder()
+    assert tokens == original
+    builder.append(text, tokens, offset, offset + 2, "en", derive_speech_bounds=True)
+    result = builder.build(offset + 2, "qwen3", "asr", "aligner")
+    assert result.text == text
+    assert len(result.words) == len(original)
+    assert result.metadata(1)["unaligned_word_count"] == 0
+    assert result.diagnostics["zero_duration_word_count"] == sum(
+        a == b for a, b in intervals
+    )
+    for source, word in zip(original, result.words):
+        assert (word.start, word.end) == (source.start, source.end)
+        assert word.provenance == "aligned"
+    assert all(a.end <= b.start for a, b in zip(result.words, result.words[1:]))
+
+
+@pytest.mark.parametrize(
+    "start,end",
+    [(-1, -1), (6, 6), (2, 1), (float("nan"), 1), (float("inf"), float("inf"))],
+)
+def test_invalid_qwen_timestamps_are_not_repaired(
+    qwen: tuple[Qwen3Transcriber, Mock, Mock], start: float, end: float
+) -> None:
+    backend, _, _ = qwen
+    inputs = MagicMock()
+    inputs.get.return_value.sum.return_value.item.return_value = 500
+    inputs.to.return_value = inputs
+    backend.aligner_processor.feature_extractor.hop_length = 160
+    backend.aligner_processor.prepare_forced_aligner_inputs.return_value = (
+        inputs,
+        [["hello"]],
+    )
+    backend.aligner_processor.decode_forced_alignment.return_value = [
+        [{"text": "hello", "start_time": start, "end_time": end}]
+    ]
+    with pytest.raises(
+        TranscriptionError, match="Invalid alignment timestamp interval"
+    ):
+        backend._align(np.zeros(80000, dtype=np.float32), "hello", "en", 0)
 
 
 def test_qwen_reuses_pair_across_recordings(

@@ -330,7 +330,7 @@ class Qwen3Transcriber:
         for item in timings:
             start, end = item.get("start_time"), item.get("end_time")
             if start is not None and end is not None:
-                TranscriptionResult.validate_interval(
+                TranscriptionResult.validate_alignment_interval(
                     float(start), float(end), duration
                 )
             tokens.append(

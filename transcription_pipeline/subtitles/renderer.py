@@ -13,9 +13,7 @@ from transcription_pipeline.constants import (
     LANGUAGE_NAMES,
     MILLISECONDS_PER_SECOND,
     SUBTITLE_MAX_CHARACTERS,
-    SUBTITLE_MAX_DURATION,
     SUBTITLE_MAX_LINES,
-    SUBTITLE_MIN_DURATION,
     SUBTITLE_PAUSE_BREAK,
     SUBTITLE_RENDER_SPEAKERS,
     SUBTITLE_TOKENIZER_CACHE_SIZE,
@@ -28,24 +26,18 @@ from ..results import TimedWord, TranscriptionResult
 
 @dataclass(frozen=True)
 class SubtitleConfig:
-    """Soft readability targets; complete text and valid timing take precedence."""
+    """Line wrapping and pause boundaries; cue length never overrides a turn."""
 
     max_characters: int = SUBTITLE_MAX_CHARACTERS
     max_lines: int = SUBTITLE_MAX_LINES
-    min_duration: float = SUBTITLE_MIN_DURATION
-    max_duration: float = SUBTITLE_MAX_DURATION
     pause_break: float = SUBTITLE_PAUSE_BREAK
     render_speakers: bool = SUBTITLE_RENDER_SPEAKERS
 
     def __post_init__(self) -> None:
-        if (
-            self.max_lines <= 0
-            or self.max_characters <= 0
-            or not 0 < self.min_duration <= self.max_duration
-        ):
-            raise ValueError("Invalid subtitle readability targets")
-        if not math.isfinite(self.max_duration) or not 0 < self.pause_break < math.inf:
-            raise ValueError("Invalid subtitle duration or pause target")
+        if self.max_lines <= 0 or self.max_characters <= 0:
+            raise ValueError("Invalid subtitle line wrapping targets")
+        if not 0 < self.pause_break < math.inf:
+            raise ValueError("Invalid subtitle pause target")
 
 
 @dataclass(frozen=True)
@@ -104,25 +96,23 @@ class SubtitleRenderer:
 
     def _should_break(
         self,
-        result: TranscriptionResult,
         group: list[TimedWord],
         word: TimedWord,
         sentence_ends: set[int],
     ) -> bool:
-        """Combine source sentence candidates, pauses, and soft layout limits."""
-        first, previous = group[0], group[-1]
-        duration = previous.end - first.start
-        if (
-            word.speaker != previous.speaker
+        """Honor supplied speakers; otherwise preserve sentences and source boundaries.
+
+        Unlabelled sentences remain unlabelled. Neither punctuation nor pauses
+        are used to assign speaker identities or assume alternating turns.
+        """
+        previous = group[-1]
+        if word.speaker != previous.speaker:
+            return True
+        if word.speaker is not None:
+            return False
+        return (
+            previous.char_end in sentence_ends
             or word.start - previous.end >= self.config.pause_break
-        ):
-            return True
-        if previous.char_end in sentence_ends and duration >= self.config.min_duration:
-            return True
-        text = self._whitespace(result.text[first.char_start : word.char_end])
-        return duration >= self.config.min_duration and (
-            len(text) > self.config.max_characters * self.config.max_lines
-            or word.end - first.start > self.config.max_duration
         )
 
     def cues(self, result: TranscriptionResult) -> tuple[Cue, ...]:
@@ -132,7 +122,7 @@ class SubtitleRenderer:
         groups: list[list[TimedWord]] = []
         group: list[TimedWord] = []
         for word in result.words:
-            if group and self._should_break(result, group, word, sentence_ends):
+            if group and self._should_break(group, word, sentence_ends):
                 groups.append(group)
                 group = []
             group.append(word)
@@ -161,15 +151,8 @@ class SubtitleRenderer:
                 round(max(word.end for word in words) * MILLISECONDS_PER_SECOND),
                 maximum,
             )
-            if cues and (start < cues[-1].end or end <= start):
-                previous = cues[-1]
-                cues[-1] = replace(
-                    previous, end=max(previous.end, end), text=f"{previous.text} {text}"
-                )
-            else:
-                if end <= start:
-                    end = min(start + 1, maximum)
-                cues.append(Cue(start, end, text))
+            cues.append(Cue(start, end, text))
+        cues = self._fit_cue_times(cues, maximum)
         for index, cue in enumerate(cues):
             if not 0 <= cue.start < cue.end <= maximum:
                 raise TranscriptionError(
@@ -178,6 +161,47 @@ class SubtitleRenderer:
             if index and cue.start < cues[index - 1].end:
                 raise TranscriptionError("Overlapping subtitle cues", code="formatting")
         return tuple(replace(cue, text=self._wrap(cue.text)) for cue in cues)
+
+    @staticmethod
+    def _fit_cue_times(cues: list[Cue], maximum: int) -> list[Cue]:
+        """Keep every boundary while fitting positive, nonoverlapping display times.
+
+        A collapsed cue gets up to one second of adjacent free time. If none
+        exists, reserve a millisecond without merging its text into another
+        sentence or speaker. Overlapping ends are clipped at the next cue's
+        start. These display adjustments never change native word timestamps.
+        """
+        if maximum < len(cues):
+            raise TranscriptionError(
+                "Insufficient time for subtitle cues", code="formatting"
+            )
+        adjusted = []
+        for index, cue in enumerate(cues):
+            start, end = cue.start, cue.end
+            if end <= start:
+                previous_end = cues[index - 1].end if index else 0
+                following_start = (
+                    cues[index + 1].start if index + 1 < len(cues) else maximum
+                )
+                if following_start > start:
+                    end = min(following_start, start + MILLISECONDS_PER_SECOND)
+                elif previous_end < start:
+                    start = max(previous_end, start - MILLISECONDS_PER_SECOND)
+            earliest = adjusted[-1].start + 1 if adjusted else 0
+            latest = maximum - (len(cues) - index)
+            adjusted.append(
+                replace(cue, start=max(earliest, min(start, latest)), end=end)
+            )
+        return [
+            replace(
+                cue,
+                end=min(
+                    max(cue.end, cue.start + 1),
+                    adjusted[index + 1].start if index + 1 < len(adjusted) else maximum,
+                ),
+            )
+            for index, cue in enumerate(adjusted)
+        ]
 
     def _wrap(self, text: str) -> str:
         """Use standard word wrapping while treating line-count targets as soft."""
