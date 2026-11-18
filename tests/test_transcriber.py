@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+import json
 from pathlib import Path
 from unittest.mock import Mock
 from typing import Any
@@ -137,6 +138,24 @@ def test_standalone_shared_output_and_debug_artifacts(
     )
     assert destination.with_suffix(".diagnostics.json").is_file()
     factory.return_value.transcribe.assert_called_once()
+
+
+def test_whisperx_numpy_alignment_is_json_serializable(whisperx_backend: Any) -> None:
+    """Real WhisperX scalar types must survive diagnostics and metadata export."""
+    backend, whisperx, path = whisperx_backend
+    segment = whisperx.align.return_value["segments"][0]
+    for item in [segment, *segment["words"]]:
+        for key in ("start", "end", "score"):
+            if key in item:
+                item[key] = np.float32(item[key])
+    result = backend.transcribe(path, TranscriptionContext())
+    metadata = ResultMetadata(result)
+    diagnostics = json.loads(json.dumps(metadata.diagnostics()))
+    exported = json.loads(json.dumps(metadata.export(1)))
+    assert diagnostics["zero_duration_word_count"] == 0
+    assert diagnostics["last_aligned_word_end"] == 2
+    assert exported["average_word_confidence"] == 0.9
+    assert [(word.start, word.end) for word in result.words] == [(0, 1), (1, 2)]
 
 
 def test_unsupported_format_rejected_before_model_loading(

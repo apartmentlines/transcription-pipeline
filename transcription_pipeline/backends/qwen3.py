@@ -26,6 +26,7 @@ from transcription_pipeline.constants import (
     QWEN_LANGUAGE_CODES,
     QWEN_MAX_CHUNK_SECONDS,
     QWEN_SAMPLE_RATE,
+    TIMESTAMP_TOLERANCE,
 )
 from ..deployment import Deployment
 from ..errors import ConfigurationError, TranscriptionError
@@ -304,9 +305,18 @@ class Qwen3Transcriber:
         return language, text, diagnostics
 
     def _align(
-        self, audio: NDArray[np.float32], text: str, language: str, offset: float
+        self,
+        audio: NDArray[np.float32],
+        text: str,
+        language: str,
+        offset: float,
+        diagnostics: dict[str, Any] | None = None,
     ) -> list[AlignmentToken]:
-        """Align the identical chunk and apply its original start offset once."""
+        """Align the chunk and apply its offset once.
+
+        Clip and report end quantization within one native timestamp bin.
+        Larger overshoots and other invalid intervals remain errors.
+        """
         inputs, word_lists = self.aligner_processor.prepare_forced_aligner_inputs(
             audio=audio,
             transcript=text,
@@ -327,9 +337,26 @@ class Qwen3Transcriber:
         )[0]
         tokens = []
         duration = len(audio) / QWEN_SAMPLE_RATE
-        for item in timings:
+        resolution = (
+            self.aligner_processor.timestamp_segment_time / MILLISECONDS_PER_SECOND
+        )
+        clipped = []
+        for index, item in enumerate(timings):
             start, end = item.get("start_time"), item.get("end_time")
             if start is not None and end is not None:
+                if (
+                    0 <= start <= end
+                    and duration < end <= duration + resolution + TIMESTAMP_TOLERANCE
+                ):
+                    clipped.append(
+                        {
+                            "word_index": index,
+                            "start": float(start),
+                            "end": float(end),
+                            "duration": duration,
+                        }
+                    )
+                    start, end = min(start, duration), duration
                 TranscriptionResult.validate_alignment_interval(
                     float(start), float(end), duration
                 )
@@ -339,6 +366,13 @@ class Qwen3Transcriber:
                     float(start) + offset if start is not None else None,
                     float(end) + offset if end is not None else None,
                 )
+            )
+        if clipped:
+            if diagnostics is not None:
+                diagnostics["alignment_endpoint_clamps"] = clipped
+            self.log.warning(
+                "Clipped %d alignment endpoints within one timestamp bin of the chunk end",
+                len(clipped),
             )
         return tokens
 
@@ -363,7 +397,7 @@ class Qwen3Transcriber:
                         "Nonempty text has no language", code="language"
                     )
                 offset = chunk.start / QWEN_SAMPLE_RATE
-                tokens = self._align(audio, text, language, offset)
+                tokens = self._align(audio, text, language, offset, details)
                 starts = [token.start for token in tokens if token.start is not None]
                 ends = [token.end for token in tokens if token.end is not None]
                 if not starts or not ends:

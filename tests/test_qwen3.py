@@ -51,6 +51,7 @@ def qwen(deployment: Deployment, monkeypatch: pytest.MonkeyPatch):
     backend = Qwen3Transcriber(config)
     backend.asr_model.config.text_config.max_position_embeddings = 32768
     backend.asr_model.generation_config.eos_token_id = [99, 100]
+    backend.aligner_processor.timestamp_segment_time = 80
     return backend, torch, transformers
 
 
@@ -338,7 +339,7 @@ def test_mixed_language_chunk_offsets_and_empty_chunk_coverage(
     )
 
     def align(
-        _audio: Any, text: str, _language: str, offset: float
+        _audio: Any, text: str, _language: str, offset: float, _details: Any
     ) -> list[AlignmentToken]:
         return [AlignmentToken(text, offset + 1, offset + 2)]
 
@@ -458,7 +459,15 @@ def test_collapsed_qwen_timestamps_preserve_text_and_bounded_timing(
 
 @pytest.mark.parametrize(
     "start,end",
-    [(-1, -1), (6, 6), (2, 1), (float("nan"), 1), (float("inf"), float("inf"))],
+    [
+        (-1, -1),
+        (6, 6),
+        (4.8, 5.51),
+        (4.8, 8.54),
+        (2, 1),
+        (float("nan"), 1),
+        (float("inf"), float("inf")),
+    ],
 )
 def test_invalid_qwen_timestamps_are_not_repaired(
     qwen: tuple[Qwen3Transcriber, Mock, Mock], start: float, end: float
@@ -479,6 +488,33 @@ def test_invalid_qwen_timestamps_are_not_repaired(
         TranscriptionError, match="Invalid alignment timestamp interval"
     ):
         backend._align(np.zeros(80000, dtype=np.float32), "hello", "en", 0)
+
+
+@pytest.mark.parametrize("start,end", [(4.8, 5.02), (5.02, 5.02), (4.8, 5.08)])
+def test_qwen_endpoint_quantization_is_bounded_and_reported(
+    qwen: tuple[Qwen3Transcriber, Mock, Mock], start: float, end: float
+) -> None:
+    """Retain a final word without accepting larger out-of-audio predictions."""
+    backend, _, _ = qwen
+    inputs = MagicMock()
+    inputs.get.return_value.sum.return_value.item.return_value = 500
+    inputs.to.return_value = inputs
+    backend.aligner_processor.feature_extractor.hop_length = 160
+    backend.aligner_processor.prepare_forced_aligner_inputs.return_value = (
+        inputs,
+        [["bye"]],
+    )
+    backend.aligner_processor.decode_forced_alignment.return_value = [
+        [{"text": "bye", "start_time": start, "end_time": end}]
+    ]
+    diagnostics: dict[str, Any] = {}
+    tokens = backend._align(
+        np.zeros(80000, dtype=np.float32), "bye", "en", 10, diagnostics
+    )
+    assert tokens == [AlignmentToken("bye", min(start, 5) + 10, 15)]
+    assert diagnostics["alignment_endpoint_clamps"] == [
+        {"word_index": 0, "start": start, "end": end, "duration": 5}
+    ]
 
 
 def test_qwen_reuses_pair_across_recordings(

@@ -408,3 +408,27 @@ def test_word_omissions_or_reordering_are_rejected_instead_of_fuzzy_matched(
             4,
             "en",
         )
+
+
+def test_timing_quality_warnings_do_not_rewrite_native_alignment(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Expose the audited long-word and collapsed-cue failures without guessing timing."""
+    builder = ResultBuilder()
+    tokens = [
+        AlignmentToken("What?", 0, 49),
+        AlignmentToken("Yes.", 49, 49),
+        AlignmentToken("Okay.", 49, 49),
+        AlignmentToken("Bye.", 49, 50),
+    ]
+    builder.append("What? Yes. Okay. Bye.", tokens, 0, 50, "en")
+    result = builder.build(50, "qwen3", "asr", "aligner")
+    diagnostics = ResultMetadata(result).diagnostics()
+    assert diagnostics["suspicious_word_duration_count"] == 1
+    assert diagnostics["alignment_warnings"] == 1
+    assert ResultMetadata(result).export(4)["alignment_warnings"] == 1
+    SubtitleRenderer().cues(result)
+    assert "review source alignment" in caplog.text
+    assert [(word.start, word.end) for word in result.words] == [
+        (t.start, t.end) for t in tokens
+    ]

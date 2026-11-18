@@ -215,17 +215,19 @@ class ResultBuilder:
                 TimedWord(
                     offset + text_cursor,
                     offset + stop,
-                    token.start,
-                    token.end,
+                    float(token.start) if token.start is not None else None,
+                    float(token.end) if token.end is not None else None,
                     token.speaker,
-                    token.score,
+                    float(token.score) if token.score is not None else None,
                 )
             )
             text_cursor = stop
             while text_cursor < len(text) and text[text_cursor].isspace():
                 text_cursor += 1
         self.segments.append(
-            SourceSegment(offset, len(self.text), start, end, language, sentence)
+            SourceSegment(
+                offset, len(self.text), float(start), float(end), language, sentence
+            )
         )
 
     def build(
@@ -241,7 +243,7 @@ class ResultBuilder:
             self.text,
             tuple(self.words),
             tuple(self.segments),
-            audio_duration,
+            float(audio_duration),
             tuple(dict.fromkeys(segment.language for segment in self.segments)),
             backend,
             asr_model,

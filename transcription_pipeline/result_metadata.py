@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from .constants import SOURCE_SPEECH_PAUSE_SECONDS, SUSPICIOUS_GAP_SECONDS
+from .constants import (
+    SOURCE_SPEECH_PAUSE_SECONDS,
+    SUSPICIOUS_GAP_SECONDS,
+    SUSPICIOUS_WORD_SECONDS,
+)
 
 from .results import TranscriptionResult
 
@@ -25,9 +29,23 @@ class ResultMetadata:
             for word in words
             if word.start is None or word.end is None
         )
+        long_words = sum(
+            1
+            for word in words
+            if word.start is not None
+            and word.end is not None
+            and word.end - word.start > SUSPICIOUS_WORD_SECONDS
+            and len(self.result.text[word.char_start : word.char_end].split()) == 1
+        )
+        clamped = sum(
+            len(chunk.get("alignment_endpoint_clamps", []))
+            for chunk in self.result.diagnostics.get("chunks", [])
+        )
         return {
             **self.result.diagnostics,
-            "alignment_warnings": missing,
+            "alignment_warnings": missing + long_words + clamped,
+            "suspicious_word_duration_count": long_words,
+            "alignment_endpoint_clamp_count": clamped,
             "unaligned_word_count": missing,
             "zero_duration_word_count": sum(
                 word.start is not None and word.start == word.end for word in words
@@ -69,7 +87,8 @@ class ResultMetadata:
             speaking_duration += max(0.0, end - max(start, interval_end))
             interval_end = max(interval_end, end)
         scores = [word.score for word in result.words if word.score is not None]
-        missing = self.diagnostics()["unaligned_word_count"]
+        diagnostics = self.diagnostics()
+        missing = diagnostics["unaligned_word_count"]
         return {
             "language": result.detected_languages[0],
             "detected_languages": ",".join(result.detected_languages),
@@ -86,5 +105,5 @@ class ResultMetadata:
                 round(sum(scores) / len(scores), 4) if scores else None
             ),
             "unaligned_word_count": missing,
-            "alignment_warnings": missing,
+            "alignment_warnings": diagnostics["alignment_warnings"],
         }

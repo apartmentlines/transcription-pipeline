@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import logging
 import re
 import textwrap
 from dataclasses import dataclass, replace
@@ -16,6 +17,7 @@ from transcription_pipeline.constants import (
     SUBTITLE_MAX_LINES,
     SUBTITLE_PAUSE_BREAK,
     SUBTITLE_RENDER_SPEAKERS,
+    SUBTITLE_SHORT_CUE_MILLISECONDS,
     SUBTITLE_TOKENIZER_CACHE_SIZE,
     TIMESTAMP_TOLERANCE,
 )
@@ -194,6 +196,15 @@ class SubtitleRenderer:
             end = min(round(end_time * MILLISECONDS_PER_SECOND), maximum)
             cues.append(Cue(start, end, text))
         cues = self._fit_cue_times(cues, maximum)
+        short = sum(
+            cue.end - cue.start < SUBTITLE_SHORT_CUE_MILLISECONDS for cue in cues
+        )
+        if short:
+            logging.getLogger(__name__).warning(
+                "%d subtitle cues are shorter than %d ms; review source alignment",
+                short,
+                SUBTITLE_SHORT_CUE_MILLISECONDS,
+            )
         for index, cue in enumerate(cues):
             if not 0 <= cue.start < cue.end <= maximum:
                 raise TranscriptionError(
