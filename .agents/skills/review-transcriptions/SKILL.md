@@ -36,7 +36,7 @@ come from listening or an audio assessment, never Python guesses about text.
 Stable references live in `~/git/apartmentlines/testing-references/`:
 `audio/operator-recordings/` for audio, `transcription-pipeline/srt/` for curated
 SRTs, and `transcription-pipeline/corpus/` for immutable revisions and the current
-pointer. Original backend SRTs are under `srt/historical/original-output/`.
+pointer.
 Referenced source evidence is preserved by hash under `transcription-pipeline/evidence/`,
 with an index mapping historical source paths to those files. Feedback, runs and
 generated sites live under the repository's ignored `test-data/reference-framework/`.

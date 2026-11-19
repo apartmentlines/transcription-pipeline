@@ -192,10 +192,6 @@ class Records:
                 )
             if len(tail.parts) == 1 and tail.suffix == ".wav":
                 return Records.within(Records.audio_dir, tail.as_posix())
-            if len(tail.parts) == 1 and tail.suffix == ".srt":
-                return Records.within(
-                    Records.srt_dir, "historical/original-output/" + tail.name
-                )
             return Records.within(
                 Records.data_dir or root / "test-data", tail.as_posix()
             )

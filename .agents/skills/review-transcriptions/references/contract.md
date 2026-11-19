@@ -109,8 +109,7 @@ Working artifacts and generated sites live under the repository's ignored
 Logical source paths use `reference-audio/`, `reference-srt/`, and
 `reference-corpus/` prefixes. Historical sealed records retain their original
 `audio-files/` paths to preserve hashes and feedback identities; the source
-resolver maps those paths to the new storage locations. Historical root SRTs
-resolve to `srt/historical/original-output/`, not the curated reference SRTs.
+resolver maps those paths to the new storage locations.
 Never rewrite old evidence to make paths look current. `test-data/storage-migration.json`
 records the relocation and byte verification. Preserve feedback downloads
 independently of browser storage.
