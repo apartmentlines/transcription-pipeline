@@ -59,6 +59,11 @@ python -m http.server 8767 --bind 127.0.0.1 --directory test-data/reference-fram
 
 After generating or rebuilding a review site, package the complete site folder
 in a `.zip` archive beside it and verify the archive before handing it off.
+Every generated CSS/JavaScript asset must have the site build ID in its filename
+(for example, `app.<build-id>.js`, `data.<build-id>.js`, and `review.<build-id>.css`).
+Change the ID when bundled code or data changes, update all asset references,
+and omit unversioned copies. Record the build ID in `build.json` and display the
+running JavaScript version so cached code cannot masquerade as a newer build.
 Include all audio, bundled scripts/data, styles, evidence and reference views;
 keep the archive outside the site folder. For the default delivery location:
 

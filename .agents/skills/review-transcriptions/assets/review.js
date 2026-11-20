@@ -7,6 +7,32 @@ let saving = null, storageReady = false, blocked = false, savedRevision = -1;
 let lastExport = null, evidenceLoaded = null;
 
 function message(text) { $("message").textContent = text; $("message").hidden = !text; }
+function validationMessage(error) {
+  message(error.message);
+  if (!error.issues?.length) return;
+  const list = document.createElement("ul");
+  for (const issue of error.issues) {
+    const row = document.createElement("li"), link = document.createElement("a");
+    link.href = `#passage-${issue.passageId}`;
+    link.textContent = `${issue.caseId} · Block ${issue.position} · ${time(issue.start)}`;
+    link.addEventListener("click", event => {
+      event.preventDefault();
+      const at = selection.indexOf(issue.caseId);
+      if (at < 0) { message(`Recording ${issue.caseId} is outside this site's selection. Open the full review site to edit it.`); return; }
+      if (draft.active_case !== issue.caseId) navigate(at);
+      const card = document.getElementById(`passage-${issue.passageId}`);
+      if (!card) return;
+      if (issue.field === "uncertainty") card.querySelector("details").open = true;
+      const target = issue.field === "uncertainty"
+        ? card.querySelector(".uncertainty textarea") : card.querySelector("textarea");
+      target.focus({preventScroll: true});
+      target.scrollIntoView({block: "center"});
+    });
+    row.append(link, ` — ${issue.reason}`); list.append(row);
+  }
+  $("message").append(list);
+  $("message").scrollIntoView({block: "center"});
+}
 function status(text) { $("save-status").textContent = text; }
 function base() { return bases.get(draft.active_case); }
 function current() { return draft.cases.find(c => c.case_id === draft.active_case) || proposal(base()); }
@@ -24,8 +50,10 @@ function header() {
 }
 function disposition() {
   const edit = current();
-  const labels = {draft: "Unreviewed", complete: "Reviewed", complete_with_uncertainty: "Reviewed · unresolved"};
+  const labels = {draft: "Unreviewed", complete: "Reviewed", complete_with_uncertainty: "Reviewed · uncertainty noted"};
   $("call-status").textContent = labels[edit.status];
+  $("review-attribution").textContent = edit.reviewed_by
+    ? `Completed by ${edit.reviewed_by} · ${edit.reviewed_at}` : "";
   $("reopen").hidden = edit.status === "draft";
   $("completion-message").hidden = edit.status === "draft";
   $("listened").checked = edit.status !== "draft";
@@ -107,13 +135,14 @@ function renderPassages(focusId = null) {
   $("passage-count").textContent = `${edit.passages.length} passages`;
   edit.passages.forEach((item, position) => {
     const card = document.createElement("article"); card.className = `passage${item.speaker_change_before ? " changed-speaker" : ""}`; card.dataset.id = item.id;
+    card.id = `passage-${item.id}`;
     const head = document.createElement("div"); head.className = "passage-head";
     head.append(button(`▶ ${time(item.start)}`, () => play(item.start), "play-passage"));
     const boundaryLabel = document.createElement("label");
     const boundary = document.createElement("input"); boundary.type = "checkbox"; boundary.checked = item.speaker_change_before; boundary.disabled = position === 0;
     boundary.addEventListener("change", () => { editCase(edit => speaker(edit.passages.find(p => p.id === item.id), boundary.checked)); card.classList.toggle("changed-speaker", boundary.checked); });
     boundaryLabel.append(boundary, "Speaker changes here"); head.append(boundaryLabel);
-    if (item.uncertainty) { const tag = document.createElement("span"); tag.className = "uncertain-tag"; tag.textContent = "Needs a listen"; head.append(tag); }
+    if (hasUncertainty(item)) { const tag = document.createElement("span"); tag.className = "uncertain-tag"; tag.textContent = "Needs a listen"; head.append(tag); }
     const number = document.createElement("span"); number.className = "passage-number"; number.textContent = position + 1; head.append(number);
     const editor = document.createElement("textarea"); editor.value = item.text; editor.rows = Math.max(2, Math.ceil(item.text.length / 95)); editor.setAttribute("aria-label", `Passage ${position + 1} text`);
     editor.addEventListener("input", () => editCase(edit => { edit.passages.find(p => p.id === item.id).text = editor.value; }));
@@ -149,14 +178,14 @@ function renderPassages(focusId = null) {
         if (position === 0) speaker(edit.passages[0], false);
       }); renderPassages();
     }, "danger"); remove.disabled = edit.passages.length === 1; actions.append(remove);
-    const details = document.createElement("details"); details.className = "uncertainty"; details.open = Boolean(item.uncertainty);
+    const details = document.createElement("details"); details.className = "uncertainty"; details.open = hasUncertainty(item) || item.alternatives.length > 0;
     const summary = document.createElement("summary"); summary.textContent = "Uncertainty, alternatives and audio position"; details.append(summary);
-    const uncertaintyLabel = document.createElement("label"); uncertaintyLabel.textContent = "What is unclear? Leave empty when resolved.";
+    const uncertaintyLabel = document.createElement("label"); uncertaintyLabel.textContent = "Uncertainty notes (optional). Replace any [REVIEW NEEDED] AI note with your findings, or clear it if resolved. Your own notes can remain when you complete review.";
     const uncertainty = document.createElement("textarea"); uncertainty.rows = 2; uncertainty.value = item.uncertainty;
     uncertainty.setAttribute("aria-label", `Passage ${position + 1} uncertainty`);
     uncertainty.addEventListener("input", () => editCase(edit => { edit.passages.find(p => p.id === item.id).uncertainty = uncertainty.value; }));
     uncertaintyLabel.append(uncertainty); details.append(uncertaintyLabel);
-    const alternativeLabel = document.createElement("label"); alternativeLabel.textContent = "Possible wording (one alternative per line)";
+    const alternativeLabel = document.createElement("label"); alternativeLabel.textContent = "Possible wording (one alternative per line). This does not change the transcript. Edit confirmed corrections above; describe any remaining doubt in Uncertainty notes.";
     const alternatives = document.createElement("textarea"); alternatives.rows = 2; alternatives.value = item.alternatives.join("\n");
     alternatives.addEventListener("input", () => editCase(edit => { edit.passages.find(p => p.id === item.id).alternatives = [...new Set(alternatives.value.split("\n").map(s => s.trim()).filter(Boolean))]; }));
     alternativeLabel.append(alternatives); details.append(alternativeLabel);
@@ -173,6 +202,7 @@ function renderCase() {
   const item = base(), edit = current(), at = selection.indexOf(item.id);
   $("recording").value = item.id;
   $("previous").disabled = at === 0; $("next").disabled = at === selection.length - 1;
+  $("previous-bottom").disabled = at === 0; $("next-bottom").disabled = at === selection.length - 1;
   $("call-title").textContent = item.id.replace(/T(\d{2})_(\d{2})_(\d{2})_/, " · $1:$2:$3 · ");
   $("audio").src = `audio/${encodeURIComponent(item.id)}.wav`;
   $("audio").playbackRate = Number($("speed").value);
@@ -190,9 +220,9 @@ function complete(unresolved) {
   if (!$("listened").checked) { message("Confirm that you listened through the call and checked the words and speaker changes."); return; }
   const trial = clone(draft), edit = trial.cases.find(c => c.case_id === trial.active_case) || proposal(base());
   if (!trial.cases.includes(edit)) trial.cases.push(edit);
-  edit.status = unresolved ? "complete_with_uncertainty" : "complete";
+  edit.status = unresolved || edit.passages.some(hasUncertainty) ? "complete_with_uncertainty" : "complete";
   edit.reviewed_at = new Date().toISOString(); edit.reviewed_by = trial.reviewer;
-  try { validateDraft(corpus, trial); } catch (error) { message(error.message); return; }
+  try { validateDraft(corpus, trial); } catch (error) { validationMessage(error); return; }
   draft = trial; change(); disposition(); message("");
 }
 function download() {
@@ -204,7 +234,7 @@ function download() {
     document.body.append(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 30000);
     lastExport = `${draft.session_id}:${draft.revision}`;
     message("Feedback download started. Your browser draft has been kept; check that the file saved successfully.");
-  } catch (error) { message(error.message); }
+  } catch (error) { validationMessage(error); }
 }
 async function canSwitch() {
   await flush();
@@ -285,6 +315,8 @@ async function main() {
   $("recording").addEventListener("change", () => navigate(selection.indexOf($("recording").value)));
   $("previous").onclick = () => navigate(selection.indexOf(draft.active_case) - 1);
   $("next").onclick = () => navigate(selection.indexOf(draft.active_case) + 1);
+  $("previous-bottom").onclick = () => navigate(selection.indexOf(draft.active_case) - 1);
+  $("next-bottom").onclick = () => navigate(selection.indexOf(draft.active_case) + 1);
   $("speed").onchange = () => { $("audio").playbackRate = Number($("speed").value); };
   $("replay").onclick = () => { const a = $("audio"); a.currentTime = Math.max(0, a.currentTime - 5); startPlayback(); };
   $("audio").ontimeupdate = () => { $("audio-position").textContent = `${time($("audio").currentTime)} / ${time(base().audio.duration)}`; };
@@ -317,5 +349,6 @@ async function main() {
   measure.observe(document.querySelector(".review-header")); measure.observe(document.querySelector(".player"));
   window.addEventListener("resize", measurePinned);
   renderCase(); await flush(); header();
+  $("running-version").textContent = `Running application version ${window.reviewAppVersion}`;
 }
 main().catch(error => { message(error.message); status("Could not open review"); });

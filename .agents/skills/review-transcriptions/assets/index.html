@@ -30,6 +30,8 @@
       <h1>Keep the words faithful to the call.</h1>
       <p>Listen through the recording. Correct what was said in its original language, including repetitions.
         Split a passage only when it contains both speakers. You do not need to name speakers or match subtitle timing.</p>
+      <p>Edit confirmed corrections directly in the transcript text. Use uncertainty notes and possible wording for anything still in doubt.
+        Complete review keeps those doubts and automatically marks the recording as reviewed with unresolved passages.</p>
       <details><summary>A few review tips</summary><p>Play a passage with its time button to hear two seconds of context before it; playback continues normally.
         Mark uncertainty instead of guessing. To separate two speakers, put the text cursor where the voice changes and choose <strong>Split at cursor</strong>.
         Mark <strong>Speaker changes here</strong> if a change already falls between passages. Other passage breaks do not matter.
@@ -42,6 +44,7 @@
     </section>
     <section class="player" aria-label="Audio player">
       <div class="player-heading"><h2 id="call-title">Loading…</h2><span id="call-status" class="badge">Unreviewed</span></div>
+      <p id="review-attribution" class="muted"></p>
       <audio id="audio" controls preload="metadata"></audio>
       <div class="playback-tools">
         <button id="replay">↶ Replay 5 seconds</button>
@@ -65,9 +68,16 @@
         <button id="reopen" hidden>Reopen review</button>
       </div>
       <p class="muted">Completion is your explicit review decision. Listening or opening a recording does not mark it reviewed.</p>
+      <nav class="completion-actions" aria-label="Recording navigation after review">
+        <button id="previous-bottom">Previous</button>
+        <button id="next-bottom">Next</button>
+      </nav>
     </section>
     <details id="evidence" class="evidence"><summary>Reference notes and alternative transcripts</summary><div id="evidence-content"></div></details>
-    <footer>Draft references are AI assisted and await human review. Your feedback revises the reference only after explicit reconciliation.</footer>
+    <footer>Draft references are AI assisted and await human review. Your feedback revises the reference only after explicit reconciliation.
+      <p id="site-build">__SITE_BUILD__</p>
+      <p id="running-version">Application has not started.</p>
+    </footer>
   </main>
 </body>
 </html>

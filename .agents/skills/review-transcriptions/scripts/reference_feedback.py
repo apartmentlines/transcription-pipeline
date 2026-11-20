@@ -44,6 +44,7 @@ class FeedbackDocument(HTMLParser):
 class Feedback:
     """Keep browser proposals separate from accepted reference revisions."""
 
+    REVIEW_MARKER: str = "[REVIEW NEEDED]"
     DRAFT_FIELDS: set[str] = {
         "schema_version",
         "project",
@@ -86,11 +87,17 @@ class Feedback:
     @staticmethod
     def proposal(case: Record) -> Record:
         """Copy one case into an editable proposal with no implied completion."""
+        passages = deepcopy(case["passages"])
+        if case["review"]["status"] == "pending":
+            for passage in passages:
+                note = passage["uncertainty"]
+                if note.strip() and Feedback.REVIEW_MARKER not in note:
+                    passage["uncertainty"] = f"{Feedback.REVIEW_MARKER} {note}"
         return {
             "case_id": case["id"],
             "base_revision": case["revision"],
             "base_sha256": case["content_sha256"],
-            "passages": deepcopy(case["passages"]),
+            "passages": passages,
             "notes": "",
             "status": "draft",
             "reviewed_at": None,
@@ -170,19 +177,20 @@ class Feedback:
                     "Unfinished draft cannot claim completion",
                 )
             else:
+                tagged = [
+                    identity
+                    for identity, passage in current.items()
+                    if cls.REVIEW_MARKER in passage["uncertainty"]
+                ]
+                Records.require(
+                    not tagged,
+                    f"Review tagged AI notes in {proposal['case_id']}: {', '.join(tagged)}",
+                )
                 Records.require(
                     isinstance(proposal["reviewed_by"], str)
                     and bool(proposal["reviewed_by"].strip())
                     and bool(proposal["reviewed_at"]),
                     "Completion needs reviewer and timestamp",
-                )
-                unresolved = any(
-                    p["uncertainty"] or "[unclear]" in p["text"].casefold()
-                    for p in current.values()
-                )
-                Records.require(
-                    status != "complete" or not unresolved,
-                    "Resolve uncertainty or complete with unresolved passages",
                 )
 
     @classmethod
@@ -236,7 +244,14 @@ class Feedback:
             old = Records.index(base["passages"])
             new = Records.index(proposal["passages"])
             lines.extend(
-                [f"## {base['id']}", "", f"Disposition: {proposal['status']}", ""]
+                [
+                    f"## {base['id']}",
+                    "",
+                    f"Disposition: {proposal['status']}",
+                    f"Completed by: {proposal['reviewed_by'] or '(not completed)'}",
+                    f"Completed at: {proposal['reviewed_at'] or '(not completed)'}",
+                    "",
+                ]
             )
             for passage in proposal["passages"]:
                 identity = passage["id"]
@@ -251,7 +266,10 @@ class Feedback:
                         f"Original: {previous_text}",
                         f"Proposed: {passage['text']}",
                         f"Speaker change before: {passage['speaker_change_before']}",
-                        f"Uncertainty: {passage['uncertainty'] or 'none'}",
+                        f"Uncertainty: {passage['uncertainty'].strip() or 'none'}",
+                        "Previous alternatives: "
+                        + json.dumps(previous["alternatives"] if previous else []),
+                        f"Proposed alternatives: {json.dumps(passage['alternatives'])}",
                         "",
                     ]
                 )

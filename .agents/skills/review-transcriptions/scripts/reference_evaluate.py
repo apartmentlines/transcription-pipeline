@@ -224,7 +224,7 @@ class Evaluator:
             )
         reviewed = case["review"]["status"] in ("complete", "complete_with_uncertainty")
         unresolved = any(
-            p["uncertainty"] or "[unclear]" in p["text"].casefold()
+            p["uncertainty"].strip() or "[unclear]" in p["text"].casefold()
             for p in case["passages"]
         )
         eligible = reviewed and not unresolved and bool(reference) and not structural
@@ -259,7 +259,7 @@ class Evaluator:
                     "alternatives": p["alternatives"],
                 }
                 for p in case["passages"]
-                if p["uncertainty"] or "[unclear]" in p["text"].casefold()
+                if p["uncertainty"].strip() or "[unclear]" in p["text"].casefold()
             ],
             "speaker_boundaries": boundary_checks,
             "speaker_review_complete": reviewed,

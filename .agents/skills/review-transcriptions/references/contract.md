@@ -34,6 +34,16 @@ unchanged even when a proposed correction is rejected.
 ## Review and feedback
 
 Human completion explicitly covers listening, words and speaker changes.
+The Complete review button permits uncertainty notes and automatically records
+completion with uncertainty when those notes or an explicit `[unclear]` remain.
+Alternatives and general recording notes alone do not imply uncertainty.
+User uncertainty notes never block completion, import or export, including older
+drafts marked complete. Initial AI notes in new pending proposals carry
+`[REVIEW NEEDED]`; only that marker requires attention before completion, with
+links to the affected blocks. Replace the tagged note with review findings or
+clear it if resolved. Existing feedback is not retagged. Scoring checks the
+actual uncertainty independently of completion status.
+Confirmed corrections belong in the main transcript; alternatives do not replace it.
 Opening a call, playing audio, importing a file and AI review do not constitute
 approval. Reviewers may complete a call with unresolved passages. Their name
 and completion timestamp belong to that case, independently of later changes

@@ -3,6 +3,7 @@ export function randomId() {
 }
 
 const clone = value => structuredClone(value);
+const REVIEW_MARKER = "[REVIEW NEEDED]";
 const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 const require = (condition, message) => { if (!condition) throw new Error(message); };
 const index = (items, key) => {
@@ -28,8 +29,19 @@ export function emptyDraft(corpus) {
 }
 
 export function proposal(base) {
+  const passages = clone(base.passages);
+  if (base.review.status === "pending") for (const passage of passages) {
+    if (passage.uncertainty.trim() && !passage.uncertainty.includes(REVIEW_MARKER)) {
+      passage.uncertainty = `${REVIEW_MARKER} ${passage.uncertainty}`;
+    }
+  }
   return {case_id: base.id, base_revision: base.revision, base_sha256: base.content_sha256,
-    passages: clone(base.passages), notes: "", status: "draft", reviewed_at: null, reviewed_by: null};
+    passages, notes: "", status: "draft", reviewed_at: null, reviewed_by: null};
+}
+
+export function hasUncertainty(passage) {
+  return Boolean(passage.uncertainty.trim() ||
+    passage.text.toLowerCase().includes("[unclear]"));
 }
 
 export function validateDraft(corpus, draft) {
@@ -44,6 +56,7 @@ export function validateDraft(corpus, draft) {
   require(typeof draft.reviewer === "string", "Invalid reviewer.");
   const bases = index(corpus.cases, "id");
   require(bases.has(draft.active_case), "Unknown active recording.");
+  const issues = [];
   for (const [id, edit] of index(draft.cases, "case_id")) {
     fields(edit, ["case_id", "base_revision", "base_sha256", "passages", "notes", "status", "reviewed_at", "reviewed_by"]);
     const base = bases.get(id);
@@ -56,8 +69,14 @@ export function validateDraft(corpus, draft) {
     for (const [passageId, passage] of passages) {
       fields(passage, ["id", "text", "start", "end", "origin_ids", "uncertainty", "alternatives", "speaker_change_before", "boundary_basis"]);
       require(/^[\w:-]+$/u.test(passageId), "Invalid passage identity.");
-      require(typeof passage.text === "string" && (passage.text.trim() || edit.status === "draft"), "Remove empty passages using Remove before completing review.");
+      require(typeof passage.text === "string", "Invalid passage text.");
+      if (!passage.text.trim() && edit.status !== "draft") issues.push({caseId: id, passageId, position: position + 1,
+        start: passage.start, field: "text", reason: "Transcript is empty. Enter the spoken words or remove this passage."});
       require(typeof passage.uncertainty === "string", "Invalid uncertainty note.");
+      if (edit.status !== "draft" && passage.uncertainty.includes(REVIEW_MARKER)) {
+        issues.push({caseId: id, passageId, position: position + 1, start: passage.start, field: "uncertainty",
+          reason: "The initial AI note still has [REVIEW NEEDED]. Check this block and replace the tagged note with your findings, or clear it if resolved. Your own notes are allowed."});
+      }
       for (const key of ["origin_ids", "alternatives"]) {
         require(Array.isArray(passage[key]) && passage[key].every(v => typeof v === "string") &&
           new Set(passage[key]).size === passage[key].length, `Invalid ${key}.`);
@@ -78,9 +97,12 @@ export function validateDraft(corpus, draft) {
     if (edit.status === "draft") require(edit.reviewed_at === null && edit.reviewed_by === null, "Unfinished review cannot claim completion.");
     else {
       require(typeof edit.reviewed_by === "string" && edit.reviewed_by.trim() && typeof edit.reviewed_at === "string" && edit.reviewed_at, "Completed review needs a reviewer and date.");
-      const unresolved = edit.passages.some(p => p.uncertainty.trim() || p.text.toLowerCase().includes("[unclear]"));
-      require(edit.status !== "complete" || !unresolved, "Choose Complete with unresolved passages, or resolve the uncertainty.");
     }
+  }
+  if (issues.length) {
+    const error = new Error("Check the linked blocks below before completing the review. Your own uncertainty notes are allowed.");
+    error.issues = issues;
+    throw error;
   }
   return draft;
 }
@@ -92,15 +114,19 @@ export function feedbackPackage(corpus, draft) {
     `Reference revision: ${draft.corpus_revision}`, `Reference hash: ${draft.corpus_sha256}`, "",
     "This document contains the complete portable draft. Import it in the review site to resume.", ""];
   for (const edit of draft.cases) {
-    lines.push(edit.case_id, `Disposition: ${edit.status}`, "");
+    lines.push(edit.case_id, `Disposition: ${edit.status}`,
+      `Completed by: ${edit.reviewed_by || "(not completed)"}`,
+      `Completed at: ${edit.reviewed_at || "(not completed)"}`, "");
     const originals = index(bases.get(edit.case_id).passages, "id");
     for (const passage of edit.passages) {
       const old = originals.get(passage.id);
       if (equal(old, passage)) continue;
       lines.push(`${passage.id} · ${passage.start.toFixed(1)}s`,
         `Original: ${old?.text ?? "(added passage)"}`, `Proposed: ${passage.text}`,
-        `Speaker change before: ${passage.speaker_change_before}`,
-        `Uncertainty: ${passage.uncertainty || "none"}`, "");
+        `Speaker change before: ${old?.speaker_change_before ?? "(new)"} → ${passage.speaker_change_before}`,
+        `Uncertainty: ${passage.uncertainty.trim() || "none"}`,
+        `Previous alternatives: ${JSON.stringify(old?.alternatives ?? [])}`,
+        `Proposed alternatives: ${JSON.stringify(passage.alternatives)}`, "");
     }
     for (const old of originals.values()) if (!edit.passages.some(p => p.id === old.id)) lines.push(`Deleted ${old.id}: ${old.text}`, "");
     if (edit.notes) lines.push(`Notes: ${edit.notes}`, "");

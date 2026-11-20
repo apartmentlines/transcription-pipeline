@@ -7,9 +7,10 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import importlib
 from pathlib import Path
+import shutil
 import sys
 from threading import Thread
-from typing import Any
+from typing import Any, override
 import wave
 
 import pytest
@@ -64,6 +65,21 @@ class ReferenceFixture:
             self.root / "corpus.json",
         )
         return self.corpus
+
+
+class CachedReviewHandler(SimpleHTTPRequestHandler):
+    """Model a static host that caches JavaScript across application upgrades."""
+
+    @override
+    def end_headers(self) -> None:
+        """Cache scripts while allowing updated HTML to be loaded immediately."""
+        policy = (
+            "public, max-age=31536000, immutable"
+            if self.path.endswith(".js")
+            else "no-store"
+        )
+        self.send_header("Cache-Control", policy)
+        super().end_headers()
 
 
 @pytest.fixture
@@ -293,6 +309,84 @@ def review_site(reference: Any, tmp_path: Path, request: Any) -> Any:
         thread.join()
 
 
+def test_site_version_tracks_application_changes_independently_of_corpus(
+    reference: Any, tmp_path: Path
+) -> None:
+    """Distinguish UI builds even when they use exactly the same references."""
+    assets = tmp_path / "assets"
+    shutil.copytree(TOOLS / "assets", assets)
+    first = tmp_path / "first"
+    preparation.Portal.build(reference, tmp_path, assets, first)
+    before = core.Records.load(first / "build.json")
+    script = assets / "review.js"
+    script.write_text(script.read_text() + "\nvoid 0;\n")
+    second = tmp_path / "second"
+    preparation.Portal.build(reference, tmp_path, assets, second)
+    after = core.Records.load(second / "build.json")
+    assert before["site_version"] != after["site_version"]
+    assert before["corpus_sha256"] == after["corpus_sha256"]
+    assert before["built_at"] != after["built_at"]
+    assert after["site_version"] in (second / "index.html").read_text()
+    assert "__SITE_BUILD__" not in (second / "index.html").read_text()
+    assert after["assets"]["app.js"] == f"app.{after['site_version']}.js"
+    assert after["assets"]["data.js"] == f"data.{after['site_version']}.js"
+    generated_assets = {
+        path.name for path in second.iterdir() if path.suffix in (".js", ".css")
+    }
+    assert generated_assets == set(after["assets"].values())
+
+
+def test_cached_javascript_cannot_survive_a_site_upgrade(
+    browser: Any, reference: Any, tmp_path: Path
+) -> None:
+    """Load new validation code even when the old unscoped script is cached."""
+    served = tmp_path / "served"
+    served.mkdir()
+    (served / "index.html").write_text('<script src="app.js"></script>')
+    (served / "app.js").write_text("window.oldReviewApp = true;")
+    server = ThreadingHTTPServer(
+        ("127.0.0.1", 0), partial(CachedReviewHandler, directory=str(served))
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    context = browser.new_context()
+    try:
+        page = context.new_page()
+        page.goto(f"http://review.test:{server.server_port}")
+        assert page.evaluate("window.oldReviewApp")
+        fresh = tmp_path / "fresh"
+        preparation.Portal.build(reference, tmp_path, TOOLS / "assets", fresh)
+        metadata = core.Records.load(fresh / "build.json")
+        shutil.copytree(fresh, served, dirs_exist_ok=True)
+        cached = page.evaluate("async () => (await fetch('app.js')).text()")
+        assert cached == "window.oldReviewApp = true;"
+        page.reload()
+        page.wait_for_function(
+            "document.querySelector('#running-version').textContent.startsWith('Running application version')"
+        )
+        assert page.evaluate("window.reviewAppVersion") == metadata["site_version"]
+        assert page.evaluate("typeof window.oldReviewApp") == "undefined"
+        page.locator("#reviewer").fill("Cache test reviewer")
+        page.get_by_role("button", name="Uncertain wording").first.click()
+        page.get_by_label("Passage 1 uncertainty", exact=True).fill(
+            "Word is hard to hear."
+        )
+        page.locator("#listened").check()
+        page.locator("#complete").click()
+        assert (
+            page.locator("#call-status").inner_text() == "Reviewed · uncertainty noted"
+        )
+        page.get_by_label("Passage 1 text", exact=True).fill("")
+        page.locator("#listened").check()
+        page.locator("#complete").click()
+        assert page.locator("#message a").count() == 1
+    finally:
+        context.close()
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
 def test_relocated_sources_preserve_hashes_and_reach_docker(
     reference: Any, tmp_path: Path, monkeypatch: Any
 ) -> None:
@@ -342,6 +436,143 @@ def browser() -> Any:
             instance.close()
 
 
+@pytest.mark.parametrize(
+    "uncertainty,text",
+    [
+        (" ", "Hello there."),
+        ("Name is hard to hear.", "Hello there."),
+        ("", "[unclear]"),
+    ],
+)
+def test_legacy_feedback_import_preserves_alternatives_and_attribution(
+    browser: Any,
+    review_site: str,
+    reference: Any,
+    tmp_path: Path,
+    uncertainty: str,
+    text: str,
+) -> None:
+    """Keep completed reviews importable with uncertainty, alternatives and authors."""
+    draft = feedback.Feedback.empty(reference)
+    draft["reviewer"] = "Current reviewer"
+    edit = feedback.Feedback.proposal(reference.cases["call-one"])
+    edit.update(
+        status="complete",
+        reviewed_by="Original reviewer",
+        reviewed_at="2026-11-18T12:00:00Z",
+    )
+    edit["passages"][0]["uncertainty"] = uncertainty
+    edit["passages"][0]["text"] = text
+    edit["passages"][0]["alternatives"] = ["Hello there!"]
+    draft["cases"] = [edit]
+    package = feedback.Feedback.package(reference, draft)
+    path = tmp_path / "legacy.json"
+    core.Records.write(path, package)
+    context = browser.new_context(accept_downloads=True)
+    page = context.new_page()
+    page.goto(review_site)
+    page.locator("#download").wait_for(state="visible")
+    page.locator("#file-input").set_input_files(path)
+    page.wait_for_function(
+        "document.querySelector('#reviewer').value === 'Current reviewer'"
+    )
+    assert "Original reviewer" in page.locator("#review-attribution").inner_text()
+    with page.expect_download() as downloaded:
+        page.locator("#download").click()
+    exported = tmp_path / "restored.html"
+    downloaded.value.save_as(exported)
+    restored = feedback.Feedback.load_package(reference, exported)
+    assert restored["draft"]["cases"] == draft["cases"]
+    assert 'Proposed alternatives: ["Hello there!"]' in restored["review_markdown"]
+    page.locator("#reopen").click()
+    page.locator("#listened").check()
+    page.locator("#complete").click()
+    unresolved = bool(uncertainty.strip() or "[unclear]" in text)
+    expected = "Reviewed · uncertainty noted" if unresolved else "Reviewed"
+    assert page.locator("#call-status").inner_text() == expected
+    reviewed = deepcopy(reference.cases["call-one"])
+    reviewed["passages"] = edit["passages"]
+    reviewed["review"]["status"] = "complete"
+    score = evaluation.Evaluator.compare(
+        reviewed, (tmp_path / "call-one.srt").read_text()
+    )
+    assert score["word_error_rate"] == (None if unresolved else 0)
+    context.close()
+
+
+def test_tagged_ai_note_requires_review_but_replacement_notes_are_allowed(
+    browser: Any, reference: Any, tmp_path: Path
+) -> None:
+    """Require attention to tagged prompts without blocking a human's findings."""
+    data = deepcopy(reference.data)
+    data["cases"][0]["passages"][0]["uncertainty"] = "Check the greeting."
+    data["cases"][0] = core.Records.seal(data["cases"][0])
+    tagged_reference = core.Corpus(core.Records.seal(data))
+    site = tmp_path / "tagged-site"
+    preparation.Portal.build(tagged_reference, tmp_path, TOOLS / "assets", site)
+    context = browser.new_context(accept_downloads=True)
+    page = context.new_page()
+    page.goto((site / "index.html").as_uri())
+    note = page.get_by_label("Passage 1 uncertainty", exact=True)
+    assert note.input_value() == "[REVIEW NEEDED] Check the greeting."
+    page.locator("#reviewer").fill("Fixture reviewer")
+    page.locator("#listened").check()
+    page.locator("#complete").click()
+    link = page.locator("#message a")
+    assert link.count() == 1
+    link.click()
+    assert note.evaluate("node => node === document.activeElement")
+    assert page.locator("#call-status").inner_text() == "Unreviewed"
+    note.fill("I hear a greeting, but cannot distinguish hello from hi.")
+    page.locator("#listened").check()
+    page.locator("#complete").click()
+    assert page.locator("#call-status").inner_text() == "Reviewed · uncertainty noted"
+    with page.expect_download() as downloaded:
+        page.locator("#download").click()
+    path = tmp_path / "tagged-feedback.html"
+    downloaded.value.save_as(path)
+    package = feedback.Feedback.load_package(tagged_reference, path)
+    assert (
+        package["draft"]["cases"][0]["passages"][0]["uncertainty"] == note.input_value()
+    )
+    draft = feedback.Feedback.empty(tagged_reference)
+    edit = feedback.Feedback.proposal(tagged_reference.cases["call-one"])
+    edit.update(
+        status="complete_with_uncertainty",
+        reviewed_by="Reviewer",
+        reviewed_at="2026-11-19T00:00:00Z",
+    )
+    draft["cases"] = [edit]
+    with pytest.raises(ValueError, match="Review tagged AI notes"):
+        feedback.Feedback.validate(tagged_reference, draft)
+    context.close()
+
+
+def test_completion_errors_link_to_every_empty_passage(
+    browser: Any, review_site: str
+) -> None:
+    """Locate all blockers without losing edits or implying review completion."""
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto(review_site)
+    page.locator("#reviewer").fill("Fixture reviewer")
+    page.get_by_label("Passage 1 text", exact=True).fill(" ")
+    page.get_by_label("Passage 2 text", exact=True).fill("")
+    page.locator("#listened").check()
+    page.locator("#complete").click()
+    links = page.locator("#message a")
+    assert links.count() == 2
+    assert "Block 1" in links.nth(0).inner_text()
+    assert "Block 2" in links.nth(1).inner_text()
+    links.nth(1).click()
+    assert page.get_by_label("Passage 2 text", exact=True).evaluate(
+        "node => node === document.activeElement"
+    )
+    assert page.locator("#call-status").inner_text() == "Unreviewed"
+    assert page.get_by_label("Passage 1 text", exact=True).input_value() == " "
+    context.close()
+
+
 def test_completion_guidance_follows_recording_status(
     browser: Any, review_site: str
 ) -> None:
@@ -355,13 +586,14 @@ def test_completion_guidance_follows_recording_status(
         exact=True,
     )
     for completion in ("#complete", "#complete-unresolved"):
+        assert page.locator("#previous-bottom").is_disabled()
         assert guidance.is_hidden()
         page.locator("#listened").check()
         page.locator(completion).click()
         assert guidance.is_visible()
-        page.locator("#next").click()
+        page.locator("#next-bottom").click()
         assert guidance.is_hidden()
-        page.locator("#previous").click()
+        page.locator("#previous-bottom").click()
         assert guidance.is_visible()
         page.wait_for_function(
             "document.querySelector('#save-status').textContent === 'Saved in this browser'"
@@ -391,9 +623,12 @@ def test_browser_review_round_trip_keeps_pending_edits_and_reconciles(
     page.get_by_label("Passage 2 uncertainty", exact=True).fill(
         "Second phrase needs a human listen."
     )
+    page.locator(".passage").nth(1).get_by_label("Possible wording", exact=False).fill(
+        "Yes, thanks."
+    )
     page.locator("#notes").fill("Keep <script>alert('x')</script> as literal notes.")
     page.locator("#listened").check()
-    page.locator("#complete-unresolved").click()
+    page.locator("#complete").click()
     with page.expect_download() as downloaded:
         page.locator("#download").click()
     path = tmp_path / "feedback.html"
@@ -401,6 +636,8 @@ def test_browser_review_round_trip_keeps_pending_edits_and_reconciles(
     package = feedback.Feedback.load_package(reference, path)
     edit = package["draft"]["cases"][0]
     assert edit["status"] == "complete_with_uncertainty"
+    assert 'Proposed alternatives: ["Yes, thanks."]' in package["review_markdown"]
+    assert "Completed by: Fixture reviewer" in package["review_markdown"]
     assert [p["text"] for p in edit["passages"]] == [
         "Hello friend.",
         "Yes please.",

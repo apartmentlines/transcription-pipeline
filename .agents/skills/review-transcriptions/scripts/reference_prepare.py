@@ -178,6 +178,52 @@ class Portal:
     """Build a self-contained static view without changing reference data."""
 
     @staticmethod
+    def stamp(corpus: Corpus, output: Path) -> None:
+        """Identify application content and build time separately from the corpus.
+
+        :param corpus: Reference revision bundled into the site.
+        :param output: Site with application assets and an unstamped HTML template.
+        """
+        application_hash = Records.digest(
+            {
+                name: Records.file_digest(output / name)
+                for name in ("index.html", "app.js", "data.js", "review.css")
+            }
+        )
+        metadata = {
+            "schema_version": 1,
+            "site_version": application_hash[:12],
+            "built_at": Records.now(),
+            "application_sha256": application_hash,
+            "corpus_revision": corpus.data["revision"],
+            "corpus_sha256": corpus.data["content_sha256"],
+        }
+        app = output / "app.js"
+        app.write_text(
+            f"window.reviewAppVersion = {json.dumps(metadata['site_version'])};\n"
+            + app.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        asset_files = {}
+        for name in ("app.js", "data.js", "review.css"):
+            path = output / name
+            versioned = f"{path.stem}.{metadata['site_version']}{path.suffix}"
+            path.rename(output / versioned)
+            asset_files[name] = versioned
+        metadata["assets"] = asset_files
+        Records.write(output / "build.json", metadata)
+        page = output / "index.html"
+        label = (
+            f"Site version {metadata['site_version']} · Built {metadata['built_at']}"
+            f" · Reference revision {metadata['corpus_revision']}"
+            ' · <a href="build.json">Build metadata</a>'
+        )
+        html = page.read_text(encoding="utf-8").replace("__SITE_BUILD__", label)
+        for original, versioned in asset_files.items():
+            html = html.replace(f'"{original}"', f'"{versioned}"')
+        page.write_text(html, encoding="utf-8")
+
+    @staticmethod
     def build(
         corpus: Corpus,
         root: Path,
@@ -202,7 +248,7 @@ class Portal:
         )
         Records.require(set(identities) <= set(corpus.cases), "Unknown portal case")
         output.mkdir(parents=True, exist_ok=False)
-        for name in ("index.html", "review.css", "review.js", "draft.js"):
+        for name in ("index.html", "review.css"):
             shutil.copyfile(assets / name, output / name)
         Records.write(output / "corpus.json", corpus.data)
         Records.write(output / "selection.json", identities)
@@ -212,7 +258,7 @@ class Portal:
             .replace("export function ", "function ")
             .replace("export class ", "class ")
         )
-        names = "randomId, emptyDraft, proposal, validateDraft, feedbackPackage, feedbackHTML, parseFeedback, DraftStore"
+        names = "randomId, emptyDraft, proposal, hasUncertainty, validateDraft, feedbackPackage, feedbackHTML, parseFeedback, DraftStore"
         browser = (
             f"const {{{names}}} = (() => {{\n{browser}\nreturn {{{names}}};\n}})();\n"
         )
@@ -254,3 +300,4 @@ class Portal:
             "window.reviewData = " + json.dumps(payload, ensure_ascii=True) + ";\n",
             encoding="utf-8",
         )
+        Portal.stamp(corpus, output)
