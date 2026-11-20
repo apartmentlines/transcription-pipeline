@@ -88,6 +88,9 @@ class Feedback:
     def proposal(case: Record) -> Record:
         """Copy one case into an editable proposal with no implied completion."""
         passages = deepcopy(case["passages"])
+        for passage in passages:
+            passage["speaker_change_before"] = False
+            passage["boundary_basis"] = None
         if case["review"]["status"] == "pending":
             for passage in passages:
                 note = passage["uncertainty"]

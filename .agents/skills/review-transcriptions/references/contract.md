@@ -34,6 +34,8 @@ unchanged even when a proposed correction is rejected.
 ## Review and feedback
 
 Human completion explicitly covers listening, words and speaker changes.
+New review proposals start with every speaker-change checkbox unchecked.
+Saved drafts and imported feedback retain their existing checkbox choices.
 The Complete review button permits uncertainty notes and automatically records
 completion with uncertainty when those notes or an explicit `[unclear]` remain.
 Alternatives and general recording notes alone do not imply uncertainty.

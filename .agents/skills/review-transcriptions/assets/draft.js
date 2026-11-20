@@ -30,6 +30,10 @@ export function emptyDraft(corpus) {
 
 export function proposal(base) {
   const passages = clone(base.passages);
+  for (const passage of passages) {
+    passage.speaker_change_before = false;
+    passage.boundary_basis = null;
+  }
   if (base.review.status === "pending") for (const passage of passages) {
     if (passage.uncertainty.trim() && !passage.uncertainty.includes(REVIEW_MARKER)) {
       passage.uncertainty = `${REVIEW_MARKER} ${passage.uncertainty}`;

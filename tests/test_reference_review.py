@@ -615,6 +615,9 @@ def test_browser_review_round_trip_keeps_pending_edits_and_reconciles(
     page = context.new_page()
     page.goto(review_site)
     page.locator("#reviewer").fill("Fixture reviewer")
+    boxes = page.get_by_role("checkbox", name="Speaker changes here")
+    assert boxes.evaluate_all("nodes => nodes.every(node => !node.checked)")
+    boxes.nth(1).check()
     editor = page.get_by_label("Passage 1 text", exact=True)
     editor.fill("Hello friend. Yes please.")
     editor.evaluate("node => node.setSelectionRange(14, 14)")
@@ -644,6 +647,7 @@ def test_browser_review_round_trip_keeps_pending_edits_and_reconciles(
         "Good evening.",
     ]
     assert edit["passages"][1]["speaker_change_before"]
+    assert edit["passages"][2]["speaker_change_before"]
     assert edit["passages"][1]["origin_ids"] == ["p0001"]
     page.locator("#next").click()
     page.locator("#previous").click()
@@ -654,6 +658,7 @@ def test_browser_review_round_trip_keeps_pending_edits_and_reconciles(
         "document.querySelector('#save-status').textContent === 'Saved in this browser'"
     )
     page.reload()
+    assert boxes.nth(2).is_checked()
     assert (
         page.get_by_label("Passage 1 text", exact=True).input_value() == "Hello friend."
     )
