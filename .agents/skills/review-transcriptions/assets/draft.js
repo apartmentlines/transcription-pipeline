@@ -31,8 +31,8 @@ export function emptyDraft(corpus) {
 export function proposal(base) {
   const passages = clone(base.passages);
   for (const passage of passages) {
-    passage.speaker_change_before = false;
-    passage.boundary_basis = null;
+    delete passage.speaker_change_before;
+    delete passage.boundary_basis;
   }
   if (base.review.status === "pending") for (const passage of passages) {
     if (passage.uncertainty.trim() && !passage.uncertainty.includes(REVIEW_MARKER)) {
@@ -48,7 +48,25 @@ export function hasUncertainty(passage) {
     passage.text.toLowerCase().includes("[unclear]"));
 }
 
-export function validateDraft(corpus, draft) {
+export function knownRole(passage) {
+  const role = passage?.role_assignment?.role;
+  return ["Operator", "Caller"].includes(role) ? role : null;
+}
+
+export function roleChange(previous, passage) {
+  return Boolean(knownRole(previous) && knownRole(passage) && knownRole(previous) !== knownRole(passage));
+}
+
+export function reviewSnapshot(draft) {
+  const snapshot = clone(draft);
+  for (const edit of snapshot.cases) for (const passage of edit.passages) {
+    delete passage.speaker_change_before;
+    delete passage.boundary_basis;
+  }
+  return snapshot;
+}
+
+export function validateDraft(corpus, draft, requireRoles = true) {
   fields(draft, ["schema_version", "project", "corpus_id", "corpus_revision", "corpus_sha256",
     "session_id", "revision", "reviewer", "active_case", "cases"]);
   require(draft.schema_version === 1, "Unsupported draft format.");
@@ -71,7 +89,25 @@ export function validateDraft(corpus, draft) {
     require(passages.size > 0, "The reference must contain at least one passage.");
     let position = 0;
     for (const [passageId, passage] of passages) {
-      fields(passage, ["id", "text", "start", "end", "origin_ids", "uncertainty", "alternatives", "speaker_change_before", "boundary_basis"]);
+      fields(passage, ["id", "text", "start", "end", "origin_ids", "uncertainty", "alternatives",
+        ...["speaker_change_before", "boundary_basis"].filter(key => key in passage),
+        ...("role_assignment" in passage ? ["role_assignment"] : [])]);
+      if ("role_assignment" in passage) {
+        const assignment = passage.role_assignment;
+        try {
+          fields(assignment, ["role", "reviewer", "assigned_at"]);
+          require(["Operator", "Caller", "Unsure"].includes(assignment.role) &&
+            typeof assignment.reviewer === "string" && assignment.reviewer.trim() &&
+            typeof assignment.assigned_at === "string" && Number.isFinite(Date.parse(assignment.assigned_at)),
+            "Invalid role assignment or attribution.");
+        } catch {
+          issues.push({caseId: id, passageId, position: position + 1, start: passage.start, field: "role_assignment",
+            reason: "Role assignment is invalid. Select Operator, Caller or Unsure again to record a valid role and reviewer."});
+        }
+      } else if (requireRoles && edit.status !== "draft") {
+        issues.push({caseId: id, passageId, position: position + 1, start: passage.start, field: "role_assignment",
+          reason: "Role assignment is required. Select Operator, Caller or Unsure for this block."});
+      }
       require(/^[\w:-]+$/u.test(passageId), "Invalid passage identity.");
       require(typeof passage.text === "string", "Invalid passage text.");
       if (!passage.text.trim() && edit.status !== "draft") issues.push({caseId: id, passageId, position: position + 1,
@@ -89,11 +125,6 @@ export function validateDraft(corpus, draft) {
         passage.start <= passage.end && passage.end <= base.audio.duration, "Invalid navigation position.");
       if (original.has(passageId)) require(equal(original.get(passageId).origin_ids, passage.origin_ids), "Changed passage lineage.");
       else require(passageId.startsWith("n-") && passage.origin_ids.every(p => original.has(p)), "Unknown new passage or split parent.");
-      require(typeof passage.speaker_change_before === "boolean", "Invalid speaker change.");
-      if (passage.speaker_change_before) require(position > 0 &&
-        ["human", "model", "assistant"].includes(passage.boundary_basis?.actor_type) && passage.boundary_basis?.note,
-        "Speaker changes need supporting evidence.");
-      else require(passage.boundary_basis === null, "Unexpected boundary evidence.");
       position++;
     }
     require(typeof edit.notes === "string", "Invalid recording notes.");
@@ -112,7 +143,8 @@ export function validateDraft(corpus, draft) {
 }
 
 export function feedbackPackage(corpus, draft) {
-  validateDraft(corpus, draft);
+  draft = reviewSnapshot(draft);
+  validateDraft(corpus, draft, true);
   const bases = index(corpus.cases, "id");
   const lines = ["Transcription review", "", `Reviewer: ${draft.reviewer || "(not supplied)"}`,
     `Reference revision: ${draft.corpus_revision}`, `Reference hash: ${draft.corpus_sha256}`, "",
@@ -127,7 +159,10 @@ export function feedbackPackage(corpus, draft) {
       if (equal(old, passage)) continue;
       lines.push(`${passage.id} · ${passage.start.toFixed(1)}s`,
         `Original: ${old?.text ?? "(added passage)"}`, `Proposed: ${passage.text}`,
-        `Speaker change before: ${old?.speaker_change_before ?? "(new)"} → ${passage.speaker_change_before}`,
+        ...(passage.role_assignment || old?.role_assignment ? [
+          `Role: ${old?.role_assignment?.role ?? "Unassigned"} → ${passage.role_assignment?.role ?? "Unassigned"}`,
+          `Role assigned by: ${passage.role_assignment?.reviewer ?? "none"} · ${passage.role_assignment?.assigned_at ?? ""}`
+        ] : []),
         `Uncertainty: ${passage.uncertainty.trim() || "none"}`,
         `Previous alternatives: ${JSON.stringify(old?.alternatives ?? [])}`,
         `Proposed alternatives: ${JSON.stringify(passage.alternatives)}`, "");
@@ -158,7 +193,7 @@ export function parseFeedback(corpus, text) {
   fields(package_, ["format", "schema_version", "exported_at", "review_markdown", "draft"]);
   require(package_.format === "transcription-review-feedback" && package_.schema_version === 1 &&
     typeof package_.review_markdown === "string", "Unsupported feedback file.");
-  validateDraft(corpus, package_.draft);
+  validateDraft(corpus, package_.draft, false);
   return package_.draft;
 }
 
@@ -223,7 +258,7 @@ export class DraftStore {
       const request = store.get(key);
       request.onsuccess = () => {
         if ((request.result?.stamp ?? null) !== expectedStamp) { conflict = true; return; }
-        store.put({key, stamp, draft: clone(draft)});
+        store.put({key, stamp, draft: reviewSnapshot(draft)});
         store.put({key: `active:${this.scope}`, draft_key: key});
       };
     });

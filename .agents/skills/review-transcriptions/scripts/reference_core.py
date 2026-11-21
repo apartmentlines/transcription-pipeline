@@ -24,8 +24,6 @@ PASSAGE_FIELDS = {
     "origin_ids",
     "uncertainty",
     "alternatives",
-    "speaker_change_before",
-    "boundary_basis",
 }
 
 
@@ -264,8 +262,18 @@ class Corpus:
         for index, item in enumerate(items):
             identity = item["id"]
             Records.require(
-                set(item) == PASSAGE_FIELDS, f"Invalid passage fields: {identity}"
+                set(item)
+                - {"role_assignment", "speaker_change_before", "boundary_basis"}
+                == PASSAGE_FIELDS,
+                f"Invalid passage fields: {identity}",
             )
+            if "role_assignment" in item:
+                try:
+                    Corpus.validate_role(item["role_assignment"])
+                except ValueError as error:
+                    raise ValueError(
+                        f"Invalid role assignment in block {identity}: {error}"
+                    ) from error
             Records.require(
                 bool(re.fullmatch(r"[\w:-]+", identity)), "Invalid passage identity"
             )
@@ -290,10 +298,11 @@ class Corpus:
                 f"Invalid navigation interval: {identity}",
             )
             Records.require(
-                type(item["speaker_change_before"]) is bool, "Invalid speaker change"
+                type(item.get("speaker_change_before", False)) is bool,
+                "Invalid speaker change",
             )
-            basis = item["boundary_basis"]
-            if item["speaker_change_before"]:
+            basis = item.get("boundary_basis")
+            if item.get("speaker_change_before", False):
                 Records.require(
                     index > 0, "First passage cannot follow a speaker change"
                 )
@@ -306,6 +315,49 @@ class Corpus:
             else:
                 Records.require(basis is None, "Unexpected boundary evidence")
         return indexed
+
+    @staticmethod
+    def validate_role(assignment: Any) -> None:
+        """Validate an optional explicit human role decision and its attribution."""
+        Records.require(
+            isinstance(assignment, dict)
+            and set(assignment) == {"role", "reviewer", "assigned_at"},
+            "Invalid role assignment fields",
+        )
+        Records.require(
+            assignment["role"] in ("Operator", "Caller", "Unsure")
+            and isinstance(assignment["reviewer"], str)
+            and bool(assignment["reviewer"].strip())
+            and isinstance(assignment["assigned_at"], str),
+            "Invalid role assignment or attribution",
+        )
+        try:
+            datetime.fromisoformat(assignment["assigned_at"].replace("Z", "+00:00"))
+        except ValueError as error:
+            raise ValueError("Invalid role assignment timestamp") from error
+
+    @staticmethod
+    def known_role(passage: Record) -> str | None:
+        """Return a resolved role, leaving absent or uncertain decisions unknown."""
+        role = passage.get("role_assignment", {}).get("role")
+        return role if role in ("Operator", "Caller") else None
+
+    @staticmethod
+    def boundary_evidence(previous: Record, passage: Record) -> Record | None:
+        """Use explicit roles before legacy evidence from role-free passages."""
+        left, right = Corpus.known_role(previous), Corpus.known_role(passage)
+        if left and right and left != right:
+            return {
+                "actor_type": "human",
+                "note": "Adjacent passages have different human-assigned roles.",
+                "role_assignments": [
+                    previous["role_assignment"],
+                    passage["role_assignment"],
+                ],
+            }
+        if "role_assignment" not in previous and "role_assignment" not in passage:
+            return passage.get("boundary_basis")
+        return None
 
     def validate(self) -> None:
         """Check corpus integrity, provenance fields and explicit review state.
@@ -413,11 +465,17 @@ class Corpus:
     def markdown(case: Record) -> str:
         """Derive a readable transcript that keeps uncertainty visible."""
         lines = [f"# {case['id']}", "", f"Review: {case['review']['status']}", ""]
-        for passage in case["passages"]:
-            boundary = " · speaker changes" if passage["speaker_change_before"] else ""
+        for position, passage in enumerate(case["passages"]):
+            previous = case["passages"][position - 1] if position else {}
+            boundary = (
+                " · speaker changes"
+                if Corpus.boundary_evidence(previous, passage)
+                else ""
+            )
+            role = passage.get("role_assignment", {}).get("role", "Unassigned")
             lines.extend(
                 [
-                    f"{passage['start']:.1f}s · {passage['id']}{boundary}",
+                    f"{passage['start']:.1f}s · {passage['id']}{boundary} · {role}",
                     "",
                     passage["text"],
                     "",

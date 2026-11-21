@@ -29,12 +29,20 @@
       <p class="eyebrow">LISTEN · CORRECT · REVIEW</p>
       <h1>Keep the words faithful to the call.</h1>
       <p>Listen through the recording. Correct what was said in its original language, including repetitions.
-        Split a passage only when it contains both speakers. You do not need to name speakers or match subtitle timing.</p>
+        Split a passage only when it contains both speakers. Exact subtitle timing is not needed.</p>
       <p>Edit confirmed corrections directly in the transcript text. Use uncertainty notes and possible wording for anything still in doubt.
         Complete review keeps those doubts and automatically marks the recording as reviewed with unresolved passages.</p>
       <details><summary>A few review tips</summary><p>Play a passage with its time button to hear two seconds of context before it; playback continues normally.
+        Keyboard: Space plays/pauses; H/← rewinds 2 seconds; L/→ advances 2 seconds.
+        Shift+H/← or Shift+L/→ seeks 10 seconds. J/↓ and K/↑ highlight the next or previous block; S starts a role selection.
+        In selection mode, J/↓ and K/↑ adjust the range. O assigns Operator, C Caller, U Unsure, R removes labels, and X clears selection.
+        These role shortcuts finish selection and move to the next block. Enter toggles the “I listened” checkbox when focused.
+        Shortcuts work outside text fields; Escape leaves a text field.
         Mark uncertainty instead of guessing. To separate two speakers, put the text cursor where the voice changes and choose <strong>Split at cursor</strong>.
-        Mark <strong>Speaker changes here</strong> if a change already falls between passages. Other passage breaks do not matter.
+        Speaker changes follow your Operator/Caller assignments. Other passage breaks do not matter.
+        To label a speaking turn, select its first block, extend the selection through its last block, then choose Operator or Caller.
+        Operator is the answering-service side; Caller is the incoming side, including property staff who called.
+        Assign a role to every block before completing review. Use Unsure when you cannot identify the role.
         Saving keeps a draft in this browser; download feedback to keep a portable copy.</p></details>
     </section>
     <section class="recording-bar" aria-label="Recording navigation">
@@ -52,6 +60,7 @@
         <span id="audio-position">0:00</span>
         <span class="muted">Approximate passage times · full audio available</span>
       </div>
+      <div class="role-summary"><span id="role-progress"></span><button id="next-unlabeled">Next unlabeled block</button></div>
     </section>
     <section class="transcript-section" aria-label="Editable transcript">
       <div class="section-heading"><h2>Transcript</h2><span id="passage-count"></span></div>
@@ -79,5 +88,17 @@
       <p id="running-version">Application has not started.</p>
     </footer>
   </main>
+  <div id="role-tools-home" hidden>
+  <section class="role-tools" aria-label="Assign speaker roles">
+    <div id="role-selection" hidden>
+      <p id="range-description" role="status"></p>
+      <div class="role-actions">
+        <button id="assign-operator">Operator</button><button id="assign-caller">Caller</button>
+        <button id="assign-unsure">Unsure</button><button id="clear-roles">Remove labels</button>
+        <button id="clear-selection">Clear selection</button>
+      </div>
+    </div>
+  </section>
+  </div>
 </body>
 </html>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from base64 import b64encode
 from copy import deepcopy
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -30,6 +31,37 @@ class ReferenceFixture:
     def __init__(self, root: Path) -> None:
         self.root: Path = root
         self.corpus: Any = None
+
+    @staticmethod
+    def assign_roles(edit: Any) -> None:
+        """Supply explicit role decisions for tests of completed review behavior."""
+        for passage in edit["passages"]:
+            passage["role_assignment"] = {
+                "role": "Unsure",
+                "reviewer": "Fixture reviewer",
+                "assigned_at": "2026-11-20T12:00:00Z",
+            }
+
+    @staticmethod
+    def label_recording(page: Any) -> None:
+        """Assign all fixture blocks before testing unrelated completion rules."""
+        count = page.locator(".passage").count()
+        page.get_by_role("button", name="Select block 1", exact=True).click()
+        if count > 1:
+            page.get_by_role(
+                "button", name=f"Extend selection through block {count}", exact=True
+            ).click()
+        page.locator("#assign-unsure").click()
+
+    @staticmethod
+    def complete_and_return(page: Any, button: str = "#complete") -> None:
+        """Return to a completed fixture after its successful automatic advance."""
+        identity = page.locator("#recording").input_value()
+        page.locator(button).click()
+        page.wait_for_function(
+            "id => document.querySelector('#recording').value !== id", arg=identity
+        )
+        page.locator("#recording").select_option(identity)
 
     def build(self) -> Any:
         entries = []
@@ -96,6 +128,7 @@ def test_reconciliation_preserves_originals_and_requires_explicit_decisions(
     draft["reviewer"] = "Fixture reviewer"
     for base in reference.cases.values():
         edit = feedback.Feedback.proposal(base)
+        ReferenceFixture.assign_roles(edit)
         edit["passages"][0]["text"] = "Hello friend."
         edit["status"] = "complete"
         edit["reviewed_by"] = "Fixture reviewer"
@@ -130,7 +163,16 @@ def test_reconciliation_preserves_originals_and_requires_explicit_decisions(
 
 
 @pytest.mark.parametrize(
-    "damage", ["stale", "unknown", "duplicate", "lineage", "blank-completion"]
+    "damage",
+    [
+        "stale",
+        "unknown",
+        "duplicate",
+        "lineage",
+        "blank-completion",
+        "role",
+        "missing-role",
+    ],
 )
 def test_invalid_proposals_do_not_modify_the_reference(
     reference: Any, damage: str
@@ -147,6 +189,29 @@ def test_invalid_proposals_do_not_modify_the_reference(
         draft["cases"].append(deepcopy(edit))
     elif damage == "lineage":
         edit["passages"][0]["origin_ids"] = ["invented-parent"]
+    elif damage == "missing-role":
+        edit.update(
+            status="complete",
+            reviewed_by="Reviewer",
+            reviewed_at="2026-11-20T12:00:00Z",
+        )
+    elif damage == "role":
+        for passage in edit["passages"]:
+            passage["role_assignment"] = {
+                "role": "Invented role",
+                "reviewer": "Reviewer",
+                "assigned_at": "2026-11-20T12:00:00Z",
+            }
+        edit["passages"][1]["speaker_change_before"] = True
+        edit["passages"][1]["boundary_basis"] = {
+            "actor_type": "human",
+            "note": "Change",
+        }
+        edit.update(
+            status="complete",
+            reviewed_by="Reviewer",
+            reviewed_at="2026-11-20T12:00:00Z",
+        )
     else:
         edit["status"] = "complete"
         edit["passages"][0]["text"] = ""
@@ -155,8 +220,10 @@ def test_invalid_proposals_do_not_modify_the_reference(
     assert reference.data == original
 
 
+@pytest.mark.parametrize("boundary_source", ["change-mark", "roles"])
 def test_scoring_ignores_cue_layout_except_evidenced_speaker_changes(
     reference: Any,
+    boundary_source: str,
 ) -> None:
     case = deepcopy(reference.cases["call-one"])
     case["passages"][1]["speaker_change_before"] = True
@@ -164,6 +231,14 @@ def test_scoring_ignores_cue_layout_except_evidenced_speaker_changes(
         "actor_type": "human",
         "note": "Synthetic speaker change",
     }
+    if boundary_source == "roles":
+        case["passages"][1].update(speaker_change_before=False, boundary_basis=None)
+        for passage, role in zip(case["passages"], ("Operator", "Caller")):
+            passage["role_assignment"] = {
+                "role": role,
+                "reviewer": "Reviewer",
+                "assigned_at": "2026-11-20T12:00:00Z",
+            }
     separate = (
         "1\n00:00:00,000 --> 00:00:02,000\nHELLO, there!\n\n"
         "2\n00:00:01,000 --> 00:00:03,000\nGood evening.\n\n"
@@ -176,6 +251,13 @@ def test_scoring_ignores_cue_layout_except_evidenced_speaker_changes(
     assert split["word_error_rate"] is None
     assert split["speaker_boundaries"][0]["status"] == "separate"
     assert mixed["speaker_boundaries"][0]["status"] == "mixed"
+    if boundary_source == "roles":
+        second = case["passages"][1]
+        second["speaker_change_before"] = True
+        second["boundary_basis"] = {"actor_type": "human", "note": "Old change mark"}
+        second["role_assignment"]["role"] = "Operator"
+        assert evaluation.Evaluator.compare(case, merged)["speaker_boundaries"] == []
+        second["role_assignment"]["role"] = "Caller"
     missing_boundary_word = merged.replace("there.", "")
     result = evaluation.Evaluator.compare(case, missing_boundary_word)
     assert result["speaker_boundaries"][0]["status"] == "unscorable"
@@ -231,6 +313,7 @@ def test_rescore_uses_old_outputs_and_reports_missing_and_unreviewed_cases(
         reviewed_by="Fixture reviewer",
     )
     edit["passages"][0]["text"] = "Hello friend."
+    ReferenceFixture.assign_roles(edit)
     draft["cases"] = [edit]
     path = tmp_path / "feedback.json"
     core.Records.write(path, feedback.Feedback.package(reference, draft))
@@ -367,12 +450,13 @@ def test_cached_javascript_cannot_survive_a_site_upgrade(
         assert page.evaluate("window.reviewAppVersion") == metadata["site_version"]
         assert page.evaluate("typeof window.oldReviewApp") == "undefined"
         page.locator("#reviewer").fill("Cache test reviewer")
+        ReferenceFixture.label_recording(page)
         page.get_by_role("button", name="Uncertain wording").first.click()
         page.get_by_label("Passage 1 uncertainty", exact=True).fill(
             "Word is hard to hear."
         )
         page.locator("#listened").check()
-        page.locator("#complete").click()
+        ReferenceFixture.complete_and_return(page)
         assert (
             page.locator("#call-status").inner_text() == "Reviewed · uncertainty noted"
         )
@@ -464,6 +548,7 @@ def test_legacy_feedback_import_preserves_alternatives_and_attribution(
     edit["passages"][0]["uncertainty"] = uncertainty
     edit["passages"][0]["text"] = text
     edit["passages"][0]["alternatives"] = ["Hello there!"]
+    ReferenceFixture.assign_roles(edit)
     draft["cases"] = [edit]
     package = feedback.Feedback.package(reference, draft)
     path = tmp_path / "legacy.json"
@@ -486,7 +571,7 @@ def test_legacy_feedback_import_preserves_alternatives_and_attribution(
     assert 'Proposed alternatives: ["Hello there!"]' in restored["review_markdown"]
     page.locator("#reopen").click()
     page.locator("#listened").check()
-    page.locator("#complete").click()
+    ReferenceFixture.complete_and_return(page)
     unresolved = bool(uncertainty.strip() or "[unclear]" in text)
     expected = "Reviewed · uncertainty noted" if unresolved else "Reviewed"
     assert page.locator("#call-status").inner_text() == expected
@@ -516,6 +601,7 @@ def test_tagged_ai_note_requires_review_but_replacement_notes_are_allowed(
     note = page.get_by_label("Passage 1 uncertainty", exact=True)
     assert note.input_value() == "[REVIEW NEEDED] Check the greeting."
     page.locator("#reviewer").fill("Fixture reviewer")
+    ReferenceFixture.label_recording(page)
     page.locator("#listened").check()
     page.locator("#complete").click()
     link = page.locator("#message a")
@@ -525,7 +611,7 @@ def test_tagged_ai_note_requires_review_but_replacement_notes_are_allowed(
     assert page.locator("#call-status").inner_text() == "Unreviewed"
     note.fill("I hear a greeting, but cannot distinguish hello from hi.")
     page.locator("#listened").check()
-    page.locator("#complete").click()
+    ReferenceFixture.complete_and_return(page)
     assert page.locator("#call-status").inner_text() == "Reviewed · uncertainty noted"
     with page.expect_download() as downloaded:
         page.locator("#download").click()
@@ -537,6 +623,7 @@ def test_tagged_ai_note_requires_review_but_replacement_notes_are_allowed(
     )
     draft = feedback.Feedback.empty(tagged_reference)
     edit = feedback.Feedback.proposal(tagged_reference.cases["call-one"])
+    ReferenceFixture.assign_roles(edit)
     edit.update(
         status="complete_with_uncertainty",
         reviewed_by="Reviewer",
@@ -560,7 +647,9 @@ def test_completion_errors_link_to_every_empty_passage(
     page.get_by_label("Passage 2 text", exact=True).fill("")
     page.locator("#listened").check()
     page.locator("#complete").click()
-    links = page.locator("#message a")
+    links = (
+        page.locator("#message li").filter(has_text="Transcript is empty").locator("a")
+    )
     assert links.count() == 2
     assert "Block 1" in links.nth(0).inner_text()
     assert "Block 2" in links.nth(1).inner_text()
@@ -570,6 +659,243 @@ def test_completion_errors_link_to_every_empty_passage(
     )
     assert page.locator("#call-status").inner_text() == "Unreviewed"
     assert page.get_by_label("Passage 1 text", exact=True).input_value() == " "
+    page.locator("#next").click()
+    assert page.locator("#message").is_hidden()
+    page.locator("#previous").click()
+    assert links.count() == 2
+    page.get_by_label("Passage 1 text", exact=True).fill("Hello there.")
+    assert page.locator("#message").is_hidden()
+    page.locator("#next-bottom").click()
+    assert page.locator("#message").is_hidden()
+    page.locator("#complete").click()
+    assert "Confirm that you listened" in page.locator("#message").inner_text()
+    page.locator("#previous-bottom").click()
+    assert page.locator("#message").is_hidden()
+    page.locator("#next-bottom").click()
+    assert "Confirm that you listened" in page.locator("#message").inner_text()
+    page.locator("#previous-bottom").click()
+    page.get_by_label("Passage 2 text", exact=True).fill("Good evening.")
+    page.locator("#listened").check()
+    page.locator("#complete").click()
+    role_links = (
+        page.locator("#message li")
+        .filter(has_text="Role assignment is required")
+        .locator("a")
+    )
+    assert role_links.count() == 2
+    role_links.first.click()
+    assert page.locator(".passage").first.locator(".role-tools").is_visible()
+    assert page.locator("#assign-operator").evaluate(
+        "node => node === document.activeElement"
+    )
+    ReferenceFixture.label_recording(page)
+    page.locator("#listened").check()
+    ReferenceFixture.complete_and_return(page)
+    assert page.locator("#call-status").inner_text() == "Reviewed"
+    context.close()
+
+
+def test_playback_shortcuts_respect_text_entry_and_override_control_defaults(
+    browser: Any, review_site: str, tmp_path: Path
+) -> None:
+    """Keep transport keys consistent without editing text or activating buttons."""
+    with wave.open(str(tmp_path / "site/audio/keyboard.wav"), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(8000)
+        audio.writeframes(b"\x00\x00" * 8000 * 120)
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto(review_site)
+    page.locator("#reviewer").fill("Keyboard reviewer")
+    audio_data = b64encode((tmp_path / "site/audio/keyboard.wav").read_bytes()).decode()
+    page.locator("#audio").evaluate(
+        "(node, data) => { node.src = 'data:audio/wav;base64,' + data; node.load(); }",
+        audio_data,
+    )
+    page.wait_for_function("""() => {
+        const audio = document.querySelector('#audio');
+        return audio.duration === 120 && audio.readyState === 4 &&
+            audio.seekable.length && audio.seekable.end(0) === 120;
+    }""")
+    page.locator("#complete").focus()
+    page.keyboard.press("Space")
+    page.wait_for_function("!document.querySelector('#audio').paused")
+    assert page.locator("#call-status").inner_text() == "Unreviewed"
+    assert page.locator("#message").is_hidden()
+    page.keyboard.press("Space")
+    page.wait_for_function("document.querySelector('#audio').paused")
+    for control in ("#audio", "#recording", "#speed", "#listened"):
+        page.locator(control).focus()
+        for key, expected in (
+            ("h", 58),
+            ("ArrowLeft", 58),
+            ("l", 62),
+            ("ArrowRight", 62),
+            ("Shift+h", 50),
+            ("Shift+ArrowLeft", 50),
+            ("Shift+l", 70),
+            ("Shift+ArrowRight", 70),
+        ):
+            page.locator("#audio").evaluate("node => { node.currentTime = 60; }")
+            page.keyboard.press(key)
+            assert page.locator("#audio").evaluate(
+                "node => node.currentTime"
+            ) == pytest.approx(expected), (control, key)
+            assert page.locator("#audio").evaluate("node => node.paused")
+    assert page.locator("#recording").input_value() == "call-one"
+    assert page.locator("#speed").input_value() == "1"
+    assert not page.locator("#listened").is_checked()
+    page.locator("#audio").evaluate("node => { node.currentTime = 1; }")
+    page.keyboard.press("h")
+    assert page.locator("#audio").evaluate("node => node.currentTime") == 0
+    page.locator("#audio").evaluate("node => { node.currentTime = 119; }")
+    page.keyboard.press("Shift+l")
+    assert page.locator("#audio").evaluate("node => node.currentTime") == 120
+    for field in ("#reviewer", "#notes", ".passage textarea >> nth=0"):
+        page.locator("#audio").evaluate(
+            "node => { node.pause(); node.currentTime = 60; }"
+        )
+        editor = page.locator(field)
+        editor.fill("")
+        editor.press_sequentially("hjklsocurx ")
+        editor.press("ArrowLeft")
+        editor.press("Shift+ArrowRight")
+        assert editor.input_value() == "hjklsocurx "
+        assert page.locator("#audio").evaluate("node => node.currentTime") == 60
+        assert page.locator("#audio").evaluate("node => node.paused")
+        editor.press("Escape")
+        assert editor.evaluate("node => node !== document.activeElement")
+        page.keyboard.press("Space")
+        page.wait_for_function("!document.querySelector('#audio').paused")
+        page.keyboard.press("Space")
+    page.locator("#audio").focus()
+    page.keyboard.down("Space")
+    page.keyboard.down("Space")
+    page.keyboard.up("Space")
+    page.wait_for_function("!document.querySelector('#audio').paused")
+    page.keyboard.press("Space")
+    page.wait_for_function("document.querySelector('#audio').paused")
+    page.locator("#audio").evaluate("node => { node.currentTime = 60; }")
+    page.keyboard.press("j")
+    page.keyboard.press("k")
+    assert page.locator("#audio").evaluate("node => node.currentTime") == 60
+    assert page.locator("#audio").evaluate("node => node.paused")
+    context.close()
+
+
+def test_keyboard_block_navigation_and_role_assignment(
+    browser: Any, review_site: str, reference: Any, tmp_path: Path
+) -> None:
+    """Label ranges by keyboard without losing focus, edits or native controls."""
+    context = browser.new_context(accept_downloads=True)
+    page = context.new_page()
+    page.goto(review_site)
+    first = page.locator(".passage").nth(0)
+    first.locator(".select-block").wait_for()
+    assert first.get_attribute("aria-current") == "true"
+    page.keyboard.press("s")
+    page.keyboard.press("o")
+    assert page.locator("#reviewer").evaluate("node => node === document.activeElement")
+    assert page.locator(".range-selected").count() == 1
+    assert page.locator(".role-badge").first.inner_text() == "Unassigned"
+    page.locator("#reviewer").fill("Keyboard reviewer")
+    page.keyboard.press("Escape")
+    page.keyboard.press("o")
+    assert page.locator(".role-badge").first.inner_text() == "Operator"
+    assert page.locator(".keyboard-highlighted").get_attribute("data-id") == "p0002"
+    assert page.locator(".range-selected").count() == 0
+    page.locator("#add-end").click()
+    page.get_by_label("Passage 3 text", exact=True).fill("Goodbye.")
+    page.keyboard.press("Escape")
+    for key, position in (
+        ("k", 1),
+        ("ArrowUp", 0),
+        ("k", 0),
+        ("j", 1),
+        ("ArrowDown", 2),
+        ("j", 2),
+    ):
+        page.keyboard.press(key)
+        card = page.locator(".passage").nth(position)
+        assert card.get_attribute("aria-current") == "true"
+        assert page.locator(".keyboard-highlighted").count() == 1
+        assert page.locator(".range-selected").count() == 0
+        assert card.locator(".select-block").evaluate(
+            "node => node === document.activeElement"
+        )
+        center, expected_center = card.evaluate("""node => {
+            const rect = node.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            const center = (innerHeight + parseFloat(style.scrollMarginTop)) / 2;
+            return [(rect.top + rect.bottom) / 2, center];
+        }""")
+        assert center == pytest.approx(expected_center, abs=4)
+    page.keyboard.press("k")
+    page.keyboard.press("s")
+    page.keyboard.press("j")
+    page.keyboard.press("c")
+    assert page.locator(".role-badge").all_text_contents() == [
+        "Operator",
+        "Caller",
+        "Caller",
+    ]
+    assert page.locator("#listened").evaluate("node => node === document.activeElement")
+    assert page.locator(".keyboard-highlighted").count() == 0
+    page.keyboard.press("Enter")
+    assert page.locator("#listened").is_checked()
+    page.keyboard.press("Enter")
+    assert not page.locator("#listened").is_checked()
+    page.get_by_role("button", name="Select block 2", exact=True).focus()
+    page.keyboard.press("s")
+    page.keyboard.press("k")
+    page.keyboard.press("r")
+    assert page.locator(".role-badge").all_text_contents() == [
+        "Unassigned",
+        "Unassigned",
+        "Caller",
+    ]
+    assert page.locator(".passage").nth(2).get_attribute("aria-current") == "true"
+    page.keyboard.press("k")
+    page.keyboard.press("s")
+    page.keyboard.press("u")
+    assert page.locator(".role-badge").nth(1).inner_text() == "Unsure"
+    page.keyboard.press("k")
+    page.keyboard.press("k")
+    page.keyboard.press("s")
+    page.keyboard.press("x")
+    assert page.locator(".range-selected").count() == 0
+    assert page.locator(".role-badge").first.inner_text() == "Unassigned"
+    assert page.locator(".passage").nth(1).get_attribute("aria-current") == "true"
+    page.locator("#next").click()
+    page.locator("#previous").click()
+    assert first.get_attribute("aria-current") == "true"
+    page.keyboard.press("s")
+    page.keyboard.press("o")
+    page.keyboard.press("j")
+    page.keyboard.press("s")
+    page.keyboard.press("x")
+    assert page.locator("#listened").evaluate("node => node === document.activeElement")
+    page.keyboard.press("j")
+    assert page.locator("#listened").evaluate("node => node === document.activeElement")
+    page.locator("#speed").focus()
+    page.keyboard.press("ArrowDown")
+    assert page.locator("#speed").input_value() == "1.25"
+    assert page.locator(".keyboard-highlighted").count() == 0
+    with page.expect_download() as download:
+        page.locator("#download").click()
+    output = tmp_path / "keyboard-review.html"
+    download.value.save_as(output)
+    saved = feedback.Feedback.load_package(reference, output)["draft"]["cases"][0]
+    assert [p["role_assignment"]["role"] for p in saved["passages"]] == [
+        "Operator",
+        "Unsure",
+        "Caller",
+    ]
+    assert all(
+        p["role_assignment"]["reviewer"] == "Keyboard reviewer"
+        for p in saved["passages"]
+    )
     context.close()
 
 
@@ -586,10 +912,11 @@ def test_completion_guidance_follows_recording_status(
         exact=True,
     )
     for completion in ("#complete", "#complete-unresolved"):
+        ReferenceFixture.label_recording(page)
         assert page.locator("#previous-bottom").is_disabled()
         assert guidance.is_hidden()
         page.locator("#listened").check()
-        page.locator(completion).click()
+        ReferenceFixture.complete_and_return(page, completion)
         assert guidance.is_visible()
         page.locator("#next-bottom").click()
         assert guidance.is_hidden()
@@ -605,6 +932,87 @@ def test_completion_guidance_follows_recording_status(
     context.close()
 
 
+def test_completion_advances_to_edited_drafts_without_validating_other_recordings(
+    browser: Any, review_site: str, reference: Any, tmp_path: Path
+) -> None:
+    """Prevent cross-recording validation jumps and skipping unfinished edits."""
+    draft = feedback.Feedback.empty(reference)
+    draft["reviewer"] = "Fixture reviewer"
+    draft["cases"] = [
+        feedback.Feedback.proposal(case) for case in reference.cases.values()
+    ]
+    draft["cases"][1]["passages"][0]["text"] = "Keep this edited greeting."
+    draft["cases"][1]["notes"] = "Work already in progress."
+    package = feedback.Feedback.package(reference, draft)
+    package["draft"]["cases"][2].update(
+        status="complete", reviewed_by="Reviewer", reviewed_at="2026-11-20T12:00:00Z"
+    )
+    path = tmp_path / "mixed-progress.json"
+    core.Records.write(path, package)
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto(review_site)
+    page.locator("#download").wait_for()
+    page.locator("#file-input").set_input_files(path)
+    page.wait_for_function(
+        "document.querySelector('#reviewer').value === 'Fixture reviewer'"
+    )
+    for identity in ("call-two", "call-three"):
+        ReferenceFixture.label_recording(page)
+        page.locator("#listened").check()
+        page.locator("#complete").click()
+        page.wait_for_function(
+            "id => document.querySelector('#recording').value === id", arg=identity
+        )
+        assert page.locator("#message").is_hidden()
+        assert page.locator("#completion-message").is_hidden()
+        if identity == "call-two":
+            assert (
+                page.get_by_label("Passage 1 text", exact=True).input_value()
+                == "Keep this edited greeting."
+            )
+            assert page.locator("#notes").input_value() == "Work already in progress."
+            page.wait_for_function(
+                "document.querySelector('#save-status').textContent === 'Saved in this browser'"
+            )
+            page.reload()
+            page.locator("#previous").click()
+            assert page.locator("#call-status").inner_text() == "Reviewed"
+            page.locator("#next").click()
+            assert (
+                page.get_by_label("Passage 1 text", exact=True).input_value()
+                == "Keep this edited greeting."
+            )
+        else:
+            assert page.locator("#call-status").inner_text() == "Roles required"
+    ReferenceFixture.label_recording(page)
+    page.locator("#listened").check()
+    page.locator("#complete-unresolved").click()
+    page.wait_for_function(
+        "document.querySelector('#save-status').textContent === 'Saved in this browser'"
+    )
+    assert page.locator("#recording").input_value() == "call-three"
+    assert page.locator("#completion-message").is_visible()
+    assert page.locator("#progress").inner_text() == "3 of 3 reviewed"
+    page.locator("#reopen").click()
+    page.locator("#recording").select_option("call-one")
+    page.locator("#reopen").click()
+    page.locator("#listened").check()
+    page.locator("#complete").click()
+    page.wait_for_function(
+        "document.querySelector('#recording').value === 'call-three'"
+    )
+    assert page.locator("#message").is_hidden()
+    page.locator("#recording").select_option("call-two")
+    page.locator("#reopen").click()
+    page.locator("#recording").select_option("call-three")
+    page.locator("#listened").check()
+    page.locator("#complete").click()
+    page.wait_for_function("document.querySelector('#recording').value === 'call-two'")
+    assert page.locator("#message").is_hidden()
+    context.close()
+
+
 def test_browser_review_round_trip_keeps_pending_edits_and_reconciles(
     browser: Any,
     review_site: str,
@@ -615,9 +1023,6 @@ def test_browser_review_round_trip_keeps_pending_edits_and_reconciles(
     page = context.new_page()
     page.goto(review_site)
     page.locator("#reviewer").fill("Fixture reviewer")
-    boxes = page.get_by_role("checkbox", name="Speaker changes here")
-    assert boxes.evaluate_all("nodes => nodes.every(node => !node.checked)")
-    boxes.nth(1).check()
     editor = page.get_by_label("Passage 1 text", exact=True)
     editor.fill("Hello friend. Yes please.")
     editor.evaluate("node => node.setSelectionRange(14, 14)")
@@ -630,8 +1035,11 @@ def test_browser_review_round_trip_keeps_pending_edits_and_reconciles(
         "Yes, thanks."
     )
     page.locator("#notes").fill("Keep <script>alert('x')</script> as literal notes.")
+    for position, role in enumerate(("operator", "caller", "operator"), 1):
+        page.get_by_role("button", name=f"Select block {position}", exact=True).click()
+        page.locator(f"#assign-{role}").click()
     page.locator("#listened").check()
-    page.locator("#complete").click()
+    ReferenceFixture.complete_and_return(page)
     with page.expect_download() as downloaded:
         page.locator("#download").click()
     path = tmp_path / "feedback.html"
@@ -646,9 +1054,16 @@ def test_browser_review_round_trip_keeps_pending_edits_and_reconciles(
         "Yes please.",
         "Good evening.",
     ]
-    assert edit["passages"][1]["speaker_change_before"]
-    assert edit["passages"][2]["speaker_change_before"]
     assert edit["passages"][1]["origin_ids"] == ["p0001"]
+    assert [p["role_assignment"]["role"] for p in edit["passages"]] == [
+        "Operator",
+        "Caller",
+        "Operator",
+    ]
+    assert all(
+        p["role_assignment"]["reviewer"] == "Fixture reviewer" for p in edit["passages"]
+    )
+    assert "Role: Unassigned → Caller" in package["review_markdown"]
     page.locator("#next").click()
     page.locator("#previous").click()
     assert (
@@ -658,7 +1073,11 @@ def test_browser_review_round_trip_keeps_pending_edits_and_reconciles(
         "document.querySelector('#save-status').textContent === 'Saved in this browser'"
     )
     page.reload()
-    assert boxes.nth(2).is_checked()
+    assert page.locator(".role-badge").all_text_contents() == [
+        "Operator",
+        "Caller",
+        "Operator",
+    ]
     assert (
         page.get_by_label("Passage 1 text", exact=True).input_value() == "Hello friend."
     )
@@ -695,6 +1114,7 @@ def test_browser_review_round_trip_keeps_pending_edits_and_reconciles(
         tmp_path / "accepted",
     )
     assert revised.cases["call-one"]["review"]["status"] == "complete_with_uncertainty"
+    assert revised.cases["call-one"]["passages"] == edit["passages"]
     fresh.set_viewport_size({"width": 390, "height": 844})
     fresh.locator("#notes").scroll_into_view_if_needed()
     assert fresh.locator("#download").is_visible()
@@ -716,6 +1136,180 @@ def test_browser_review_round_trip_keeps_pending_edits_and_reconciles(
     )
     context.close()
     fresh_context.close()
+
+
+def test_role_ranges_are_bounded_and_replace_legacy_speaker_decisions(
+    browser: Any, review_site: str, reference: Any, tmp_path: Path
+) -> None:
+    """Keep range edits bounded and let roles supersede imported change marks."""
+    draft = feedback.Feedback.empty(reference)
+    draft["reviewer"] = "Role reviewer"
+    proposal = feedback.Feedback.proposal(reference.cases["call-one"])
+    proposal["passages"][1].update(
+        speaker_change_before=True,
+        boundary_basis={"actor_type": "human", "note": "Legacy change mark"},
+    )
+    draft["cases"] = [proposal]
+    source = tmp_path / "old-boundary.json"
+    package = feedback.Feedback.package(reference, draft)
+    package["draft"] = draft
+    core.Records.write(source, package)
+    context = browser.new_context(accept_downloads=True)
+    page = context.new_page()
+    page.goto(review_site)
+    page.locator("#download").wait_for(state="visible")
+    page.locator("#file-input").set_input_files(source)
+    page.wait_for_function(
+        "document.querySelector('#reviewer').value === 'Role reviewer'"
+    )
+    page.locator("#add-end").click()
+    page.get_by_label("Passage 3 text", exact=True).fill("Goodbye.")
+    page.get_by_role("button", name="Select block 2", exact=True).click()
+    assert page.locator(".passage").nth(1).locator(".role-tools").is_visible()
+    assert page.locator(".role-tools").evaluate(
+        "node => getComputedStyle(node).position === 'static' && "
+        + "node.previousElementSibling.classList.contains('passage-head') && "
+        + "node.nextElementSibling.tagName === 'TEXTAREA'"
+    )
+    page.get_by_role(
+        "button", name="Extend selection through block 1", exact=True
+    ).click()
+    assert (
+        "Blocks 1–2 selected · 2 blocks"
+        in page.locator("#range-description").inner_text()
+    )
+    assert page.locator(".range-selected").count() == 2
+    assert page.locator(".passage").nth(0).locator(".role-tools").is_visible()
+    assert page.locator(".role-tools").count() == 1
+    page.locator("#assign-caller").focus()
+    for key, endpoint, count in (
+        ("ArrowUp", 0, 2),
+        ("j", 1, 1),
+        ("ArrowDown", 2, 2),
+        ("ArrowDown", 2, 2),
+        ("k", 1, 1),
+        ("ArrowUp", 0, 2),
+    ):
+        page.keyboard.press(key)
+        assert page.locator(".range-selected").count() == count
+        assert (
+            page.locator(".passage").nth(endpoint).locator(".role-tools").is_visible()
+        )
+        assert page.locator("#assign-caller").evaluate(
+            "node => node === document.activeElement"
+        )
+    editor = page.get_by_label("Passage 1 text", exact=True)
+    editor.press("ArrowDown")
+    assert page.locator(".passage").nth(0).locator(".role-tools").is_visible()
+    editor.press("Escape")
+    page.keyboard.press("j")
+    assert page.locator(".range-selected").count() == 1
+    page.keyboard.press("k")
+    assert page.locator(".range-selected").count() == 2
+    assert page.locator("#audio").evaluate("node => node.paused")
+    page.locator("#assign-operator").click()
+    assert page.locator(".role-badge").all_text_contents() == [
+        "Operator",
+        "Operator",
+        "Unassigned",
+    ]
+    assert page.locator("#role-selection").is_hidden()
+    page.locator("#listened").check()
+    page.locator("#complete").click()
+    assert page.locator("#call-status").inner_text() == "Unreviewed"
+    assert "Block 3" in page.locator("#message a").inner_text()
+    page.locator("#message a").click()
+    page.locator("#assign-unsure").click()
+    page.locator("#listened").check()
+    ReferenceFixture.complete_and_return(page)
+    assert page.locator("#call-status").inner_text() == "Reviewed"
+    assert page.locator("#message").is_hidden()
+    assert page.locator(".role-continuation").count() == 1
+    page.get_by_label("Passage 1 text", exact=True).fill("Hello, corrected.")
+    page.get_by_role("button", name="Select block 2", exact=True).click()
+    page.locator("#assign-caller").click()
+    page.get_by_role("button", name="Select block 2", exact=True).click()
+    page.locator("#assign-operator").click()
+    assert (
+        page.get_by_label("Passage 1 text", exact=True).input_value()
+        == "Hello, corrected."
+    )
+    assert page.locator(".role-continuation").count() == 1
+    page.get_by_role("button", name="Select block 2", exact=True).click()
+    page.get_by_role("button", name="Select block 3", exact=True).click(
+        modifiers=["Shift"]
+    )
+    assert page.locator(".passage").nth(2).locator(".role-tools").is_visible()
+    page.locator("#assign-caller").click()
+    assert page.locator(".role-badge").all_text_contents() == [
+        "Operator",
+        "Caller",
+        "Caller",
+    ]
+    assert page.get_by_text("Speaker change · from roles", exact=True).count() == 1
+    editor = page.get_by_label("Passage 2 text", exact=True)
+    editor.evaluate("node => node.setSelectionRange(5, 5)")
+    page.get_by_role("button", name="Split at cursor").nth(1).click()
+    assert page.locator(".role-badge").all_text_contents() == [
+        "Operator",
+        "Caller",
+        "Unassigned",
+        "Caller",
+    ]
+    page.locator("#next-unlabeled").click()
+    assert "Blocks 3–3 selected" in page.locator("#range-description").inner_text()
+    page.locator("#assign-unsure").click()
+    assert "1 unsure · 0 unassigned" in page.locator("#role-progress").inner_text()
+    page.get_by_role("button", name="Select block 4", exact=True).click()
+    page.locator("#clear-roles").click()
+    assert "1 unsure · 1 unassigned" in page.locator("#role-progress").inner_text()
+    page.locator("#listened").check()
+    page.locator("#complete").click()
+    assert "Block 4" in page.locator("#message a").inner_text()
+    page.locator("#message a").click()
+    page.locator("#assign-unsure").click()
+    page.locator("#listened").check()
+    ReferenceFixture.complete_and_return(page)
+    assert page.locator("#call-status").inner_text() == "Reviewed"
+    with page.expect_download() as downloaded:
+        page.locator("#download").click()
+    path = tmp_path / "role-ranges.html"
+    downloaded.value.save_as(path)
+    edit = feedback.Feedback.load_package(reference, path)["draft"]["cases"][0]
+    assert all(
+        "speaker_change_before" not in p and "boundary_basis" not in p
+        for p in edit["passages"]
+    )
+    page.wait_for_function(
+        "document.querySelector('#save-status').textContent === 'Saved in this browser'"
+    )
+    stored = page.evaluate("""async () => {
+        const db = await new Promise(resolve => {
+            const request = indexedDB.open('transcription-reviews-v1', 1);
+            request.onsuccess = () => resolve(request.result);
+        });
+        const rows = await new Promise(resolve => {
+            const request = db.transaction('drafts').objectStore('drafts').getAll();
+            request.onsuccess = () => resolve(request.result);
+        });
+        db.close();
+        return rows.filter(row => row.draft).flatMap(row => row.draft.cases);
+    }""")
+    assert stored == [edit]
+    assert [p.get("role_assignment", {}).get("role") for p in edit["passages"]] == [
+        "Operator",
+        "Caller",
+        "Unsure",
+        "Unsure",
+    ]
+    page.get_by_role("button", name="Select block 1", exact=True).click()
+    page.locator("#next").click()
+    assert page.locator("#role-selection").is_hidden()
+    assert page.locator(".role-badge").all_text_contents() == [
+        "Unassigned",
+        "Unassigned",
+    ]
+    context.close()
 
 
 def test_browser_storage_failure_still_exports_latest_incomplete_text(
@@ -740,6 +1334,14 @@ def test_browser_storage_failure_still_exports_latest_incomplete_text(
     assert package["draft"]["cases"][0]["passages"][0]["text"] == ""
     assert "Only in this page" in page.locator("#save-status").inner_text()
     assert page.locator("#call-status").inner_text() == "Unreviewed"
+    page.locator("#reviewer").fill("Fixture reviewer")
+    page.get_by_label("Passage 1 text", exact=True).fill("Hello there.")
+    ReferenceFixture.label_recording(page)
+    page.locator("#listened").check()
+    page.locator("#complete").click()
+    assert page.locator("#call-status").inner_text() == "Reviewed"
+    assert page.locator("#recording").input_value() == "call-one"
+    assert "Only in this page" in page.locator("#save-status").inner_text()
     context.close()
 
 

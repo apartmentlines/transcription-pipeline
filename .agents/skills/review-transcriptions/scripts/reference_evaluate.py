@@ -183,9 +183,13 @@ class Evaluator:
             owners.extend([number] * len(words))
         reference: list[str] = []
         boundaries: list[tuple[int, Record]] = []
-        for passage in case["passages"]:
-            if passage["speaker_change_before"]:
-                boundaries.append((len(reference), passage))
+        for position, passage in enumerate(case["passages"]):
+            previous = case["passages"][position - 1] if position else {}
+            evidence = Corpus.boundary_evidence(previous, passage)
+            if evidence:
+                boundaries.append(
+                    (len(reference), {**passage, "boundary_basis": evidence})
+                )
             reference.extend(cls.words(passage["text"]))
         alignment = cls.alignment(reference, candidate)
         matches = alignment.pop("matches")

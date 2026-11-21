@@ -89,8 +89,8 @@ class Feedback:
         """Copy one case into an editable proposal with no implied completion."""
         passages = deepcopy(case["passages"])
         for passage in passages:
-            passage["speaker_change_before"] = False
-            passage["boundary_basis"] = None
+            passage.pop("speaker_change_before", None)
+            passage.pop("boundary_basis", None)
         if case["review"]["status"] == "pending":
             for passage in passages:
                 note = passage["uncertainty"]
@@ -107,6 +107,16 @@ class Feedback:
             "reviewed_by": None,
         }
 
+    @staticmethod
+    def snapshot(draft: Record) -> Record:
+        """Copy the complete draft without obsolete checkbox fields."""
+        snapshot = deepcopy(draft)
+        for proposal in snapshot["cases"]:
+            for passage in proposal["passages"]:
+                passage.pop("speaker_change_before", None)
+                passage.pop("boundary_basis", None)
+        return snapshot
+
     @classmethod
     def validate(cls, corpus: Corpus, draft: Record) -> None:
         """Check proposal identities, lineage and explicit completion provenance.
@@ -115,6 +125,7 @@ class Feedback:
         :param draft: Structured browser edits, including unfinished work.
         :raises ValueError: If edits are stale, conflicting or malformed.
         """
+        draft = cls.snapshot(draft)
         Records.require(set(draft) == cls.DRAFT_FIELDS, "Invalid draft fields")
         Records.require(
             draft["schema_version"] == SCHEMA_VERSION, "Unsupported draft schema"
@@ -180,6 +191,16 @@ class Feedback:
                     "Unfinished draft cannot claim completion",
                 )
             else:
+                missing_roles = [
+                    passage_id
+                    for passage_id, passage in current.items()
+                    if "role_assignment" not in passage
+                ]
+                Records.require(
+                    not missing_roles,
+                    f"Role assignment is required in {identity}: {', '.join(missing_roles)}. "
+                    "Select Operator, Caller or Unsure for each block.",
+                )
                 tagged = [
                     identity
                     for identity, passage in current.items()
@@ -268,7 +289,16 @@ class Feedback:
                         "",
                         f"Original: {previous_text}",
                         f"Proposed: {passage['text']}",
-                        f"Speaker change before: {passage['speaker_change_before']}",
+                        *(
+                            [
+                                "Role assignment: "
+                                + json.dumps(passage.get("role_assignment")),
+                            ]
+                            if "role_assignment" in passage
+                            or previous
+                            and "role_assignment" in previous
+                            else []
+                        ),
                         f"Uncertainty: {passage['uncertainty'].strip() or 'none'}",
                         "Previous alternatives: "
                         + json.dumps(previous["alternatives"] if previous else []),
@@ -285,6 +315,7 @@ class Feedback:
     @classmethod
     def package(cls, corpus: Corpus, draft: Record) -> Record:
         """Validate and bundle exact edits with a derived readable review."""
+        draft = cls.snapshot(draft)
         cls.validate(corpus, draft)
         return {
             "format": "transcription-review-feedback",
@@ -314,7 +345,7 @@ class Feedback:
         :raises ValueError: If feedback or decisions fail validation.
         """
         package = cls.load_package(corpus, package_path)
-        draft = package["draft"]
+        draft = cls.snapshot(package["draft"])
         proposals = Records.index(draft["cases"], "case_id")
         indexed = Records.index(decisions, "case_id")
         Records.require(bool(actor.strip()), "An adjudicator identity is required")

@@ -258,7 +258,7 @@ class Portal:
             .replace("export function ", "function ")
             .replace("export class ", "class ")
         )
-        names = "randomId, emptyDraft, proposal, hasUncertainty, validateDraft, feedbackPackage, feedbackHTML, parseFeedback, DraftStore"
+        names = "randomId, emptyDraft, proposal, hasUncertainty, knownRole, roleChange, reviewSnapshot, validateDraft, feedbackPackage, feedbackHTML, parseFeedback, DraftStore"
         browser = (
             f"const {{{names}}} = (() => {{\n{browser}\nreturn {{{names}}};\n}})();\n"
         )
