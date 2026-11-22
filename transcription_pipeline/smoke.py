@@ -87,6 +87,9 @@ class DeploymentSmokeTest:
         if status.status_code != 200 or status.json != {
             "status": "idle",
             "exit_code": None,
+            "phase": "idle",
+            "models_ready": False,
+            "ready_workers": 0,
         }:
             raise AssertionError("REST startup status failed")
         rejected = client.post(
