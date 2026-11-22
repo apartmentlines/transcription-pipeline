@@ -1,0 +1,354 @@
+{
+  "context_runs": [
+    {
+      "chunk_seconds": 30,
+      "recording_limit": 4,
+      "active_chunks": 16,
+      "attempted": 100,
+      "completed": 100,
+      "error": null,
+      "startup_seconds": 44.86821807301021,
+      "processing_seconds": 82.73035774599703,
+      "total_seconds": 130.51416685600998,
+      "shutdown_seconds": 2.9155910370027414,
+      "peak_gpu_mib": 13992,
+      "peak_rss_mib": 7555.40625,
+      "result_capture_seconds_sum": 0.7443471350561595,
+      "measurement_scope": "Installed CLI run path; result/raw-timestamp observation adds diagnostic I/O. Same observation for every variant. Excludes Docker launch/pull and outer Python import before timer.",
+      "run": "context-30",
+      "median_recording_latency_seconds": 2.6015117864953936,
+      "audit": {
+        "outputs": 100,
+        "violations": [],
+        "words": 23208,
+        "diagnostic_totals": {
+          "alignment_warnings": 23,
+          "unaligned_word_count": 0,
+          "zero_duration_word_count": 1626,
+          "suspicious_gap_count": 6
+        },
+        "short_cue_counts": {
+          "1": 10,
+          "20": 10,
+          "80": 72,
+          "100": 72,
+          "250": 321
+        },
+        "chunks": 439,
+        "eos": {
+          "true": 439
+        },
+        "repetition_flags": []
+      },
+      "prompt_echo_files": [],
+      "recognition_retries": [
+        {
+          "file": "2026-11-05T21_47_23_+12103238064",
+          "retry": {
+            "reason": "generation_incomplete",
+            "original_chunks": [
+              {
+                "start_sample": 1804480,
+                "end_sample": 2221280,
+                "generated_tokens": 108,
+                "finish_reason": "stop"
+              },
+              {
+                "start_sample": 2221280,
+                "end_sample": 2419200,
+                "generated_tokens": 2048,
+                "finish_reason": "length"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "chunk_seconds": 30,
+      "recording_limit": 4,
+      "active_chunks": 16,
+      "attempted": 100,
+      "completed": 100,
+      "error": null,
+      "startup_seconds": 44.79836376199091,
+      "processing_seconds": 85.25541118699766,
+      "total_seconds": 132.97979929599387,
+      "shutdown_seconds": 2.9260243470052956,
+      "peak_gpu_mib": 15178,
+      "peak_rss_mib": 6055.29296875,
+      "result_capture_seconds_sum": 0.777918901949306,
+      "measurement_scope": "Installed CLI run path; result/raw-timestamp observation adds diagnostic I/O. Same observation for every variant. Excludes Docker launch/pull and outer Python import before timer.",
+      "run": "context-30-repeat",
+      "median_recording_latency_seconds": 2.6782501339985174,
+      "audit": {
+        "outputs": 100,
+        "violations": [],
+        "words": 23215,
+        "diagnostic_totals": {
+          "alignment_warnings": 25,
+          "unaligned_word_count": 0,
+          "zero_duration_word_count": 1628,
+          "suspicious_gap_count": 6
+        },
+        "short_cue_counts": {
+          "1": 9,
+          "20": 9,
+          "80": 70,
+          "100": 70,
+          "250": 315
+        },
+        "chunks": 439,
+        "eos": {
+          "true": 439
+        },
+        "repetition_flags": []
+      },
+      "prompt_echo_files": [],
+      "recognition_retries": [
+        {
+          "file": "2026-11-05T21_47_23_+12103238064",
+          "retry": {
+            "reason": "generation_incomplete",
+            "original_chunks": [
+              {
+                "start_sample": 1804480,
+                "end_sample": 2221280,
+                "generated_tokens": 109,
+                "finish_reason": "stop"
+              },
+              {
+                "start_sample": 2221280,
+                "end_sample": 2419200,
+                "generated_tokens": 2048,
+                "finish_reason": "length"
+              }
+            ]
+          }
+        }
+      ],
+      "identical_texts_to_first_run": 71
+    },
+    {
+      "chunk_seconds": 45,
+      "recording_limit": 4,
+      "active_chunks": 16,
+      "attempted": 100,
+      "completed": 100,
+      "error": null,
+      "startup_seconds": 44.67476181699021,
+      "processing_seconds": 75.12902317001135,
+      "total_seconds": 122.71624445599446,
+      "shutdown_seconds": 2.9124594689928927,
+      "peak_gpu_mib": 15334,
+      "peak_rss_mib": 7387.7109375,
+      "result_capture_seconds_sum": 0.7420853329385864,
+      "measurement_scope": "Installed CLI run path; result/raw-timestamp observation adds diagnostic I/O. Same observation for every variant. Excludes Docker launch/pull and outer Python import before timer.",
+      "run": "context-45",
+      "median_recording_latency_seconds": 2.7780616025047493,
+      "audit": {
+        "outputs": 100,
+        "violations": [],
+        "words": 23183,
+        "diagnostic_totals": {
+          "alignment_warnings": 11,
+          "unaligned_word_count": 0,
+          "zero_duration_word_count": 1581,
+          "suspicious_gap_count": 5
+        },
+        "short_cue_counts": {
+          "1": 7,
+          "20": 7,
+          "80": 75,
+          "100": 75,
+          "250": 330
+        },
+        "chunks": 300,
+        "eos": {
+          "true": 300
+        },
+        "repetition_flags": []
+      },
+      "prompt_echo_files": [],
+      "recognition_retries": []
+    },
+    {
+      "chunk_seconds": 45,
+      "recording_limit": 4,
+      "active_chunks": 16,
+      "attempted": 100,
+      "completed": 100,
+      "error": null,
+      "startup_seconds": 45.12364418299694,
+      "processing_seconds": 74.41104479500791,
+      "total_seconds": 122.4322919989936,
+      "shutdown_seconds": 2.897603020988754,
+      "peak_gpu_mib": 12498,
+      "peak_rss_mib": 7440.5234375,
+      "result_capture_seconds_sum": 0.7475821029802319,
+      "measurement_scope": "Installed CLI run path; result/raw-timestamp observation adds diagnostic I/O. Same observation for every variant. Excludes Docker launch/pull and outer Python import before timer.",
+      "run": "context-45-repeat",
+      "median_recording_latency_seconds": 2.778944677003892,
+      "audit": {
+        "outputs": 100,
+        "violations": [],
+        "words": 23179,
+        "diagnostic_totals": {
+          "alignment_warnings": 11,
+          "unaligned_word_count": 0,
+          "zero_duration_word_count": 1573,
+          "suspicious_gap_count": 5
+        },
+        "short_cue_counts": {
+          "1": 7,
+          "20": 7,
+          "80": 76,
+          "100": 76,
+          "250": 324
+        },
+        "chunks": 300,
+        "eos": {
+          "true": 300
+        },
+        "repetition_flags": []
+      },
+      "prompt_echo_files": [],
+      "recognition_retries": [],
+      "identical_texts_to_first_run": 78
+    },
+    {
+      "chunk_seconds": 60,
+      "recording_limit": 4,
+      "active_chunks": 16,
+      "attempted": 100,
+      "completed": 100,
+      "error": null,
+      "startup_seconds": 44.51033091499994,
+      "processing_seconds": 99.28325824999774,
+      "total_seconds": 146.69961345399497,
+      "shutdown_seconds": 2.906024288997287,
+      "peak_gpu_mib": 14808,
+      "peak_rss_mib": 7479.41796875,
+      "result_capture_seconds_sum": 0.7331019410921726,
+      "measurement_scope": "Installed CLI run path; result/raw-timestamp observation adds diagnostic I/O. Same observation for every variant. Excludes Docker launch/pull and outer Python import before timer.",
+      "run": "context-60",
+      "median_recording_latency_seconds": 3.2859074544976465,
+      "audit": {
+        "outputs": 100,
+        "violations": [],
+        "words": 23132,
+        "diagnostic_totals": {
+          "alignment_warnings": 15,
+          "unaligned_word_count": 0,
+          "zero_duration_word_count": 1645,
+          "suspicious_gap_count": 9
+        },
+        "short_cue_counts": {
+          "1": 23,
+          "20": 23,
+          "80": 94,
+          "100": 94,
+          "250": 351
+        },
+        "chunks": 240,
+        "eos": {
+          "true": 240
+        },
+        "repetition_flags": []
+      },
+      "prompt_echo_files": [
+        "2026-11-05T19_51_38_+17703103319",
+        "2026-11-05T20_25_10_+12812502189"
+      ],
+      "recognition_retries": [
+        {
+          "file": "2026-11-05T20_04_44_+13466079145",
+          "retry": {
+            "reason": "generation_incomplete",
+            "original_chunks": [
+              {
+                "start_sample": 0,
+                "end_sample": 914080,
+                "generated_tokens": 45,
+                "finish_reason": "stop"
+              },
+              {
+                "start_sample": 914080,
+                "end_sample": 1825280,
+                "generated_tokens": 2048,
+                "finish_reason": "length"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "chunk_seconds": 60,
+      "recording_limit": 4,
+      "active_chunks": 16,
+      "attempted": 100,
+      "completed": 100,
+      "error": null,
+      "startup_seconds": 44.70161538499815,
+      "processing_seconds": 98.59588867500133,
+      "total_seconds": 146.184496108006,
+      "shutdown_seconds": 2.8869920480065048,
+      "peak_gpu_mib": 14154,
+      "peak_rss_mib": 6797.37890625,
+      "result_capture_seconds_sum": 0.7482658389344579,
+      "measurement_scope": "Installed CLI run path; result/raw-timestamp observation adds diagnostic I/O. Same observation for every variant. Excludes Docker launch/pull and outer Python import before timer.",
+      "run": "context-60-repeat",
+      "median_recording_latency_seconds": 3.3398523709984147,
+      "audit": {
+        "outputs": 100,
+        "violations": [],
+        "words": 23102,
+        "diagnostic_totals": {
+          "alignment_warnings": 15,
+          "unaligned_word_count": 0,
+          "zero_duration_word_count": 1615,
+          "suspicious_gap_count": 9
+        },
+        "short_cue_counts": {
+          "1": 21,
+          "20": 21,
+          "80": 92,
+          "100": 92,
+          "250": 349
+        },
+        "chunks": 240,
+        "eos": {
+          "true": 240
+        },
+        "repetition_flags": []
+      },
+      "prompt_echo_files": [
+        "2026-11-05T20_25_10_+12812502189"
+      ],
+      "recognition_retries": [
+        {
+          "file": "2026-11-05T20_04_44_+13466079145",
+          "retry": {
+            "reason": "generation_incomplete",
+            "original_chunks": [
+              {
+                "start_sample": 0,
+                "end_sample": 914080,
+                "generated_tokens": 45,
+                "finish_reason": "stop"
+              },
+              {
+                "start_sample": 914080,
+                "end_sample": 1825280,
+                "generated_tokens": 2048,
+                "finish_reason": "length"
+              }
+            ]
+          }
+        }
+      ],
+      "identical_texts_to_first_run": 91
+    }
+  ]
+}

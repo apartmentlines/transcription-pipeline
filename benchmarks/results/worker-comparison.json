@@ -1,0 +1,476 @@
+{
+  "method": "100 recordings, sequential configurations on one RTX 3090; timing includes failed attempts, alignment and output writing; model startup excluded from processing wall time",
+  "limitations": [
+    "One run per configuration, with cached compilation artifacts and sequential model initialization",
+    "Cross-recording experiment uses bounded offline batches, not an asynchronous production scheduler",
+    "RSS sums process resident sets and may count shared pages multiple times",
+    "Structural output checks do not establish recognition or timing accuracy"
+  ],
+  "results": {
+    "qwen-one-eight": {
+      "backend": "qwen3",
+      "workers": 1,
+      "batch_size": 8,
+      "kv_cache_mib": 1024,
+      "recordings_per_batch": 1,
+      "output": "/output/qwen-one-eight",
+      "chunk_seconds": 30,
+      "initialization": "sequential, inference starts after all workers are ready",
+      "worker_type": "threads, matching the production pipeline",
+      "initialization_seconds": 70.97212451900123,
+      "worker_initializations": [
+        {
+          "kind": "ready",
+          "worker": 0,
+          "model_seconds": 70.95311877999848
+        }
+      ],
+      "processing_wall_seconds": 129.3985067450012,
+      "attempted": 100,
+      "successful": 99,
+      "total_seconds_excluding_shutdown": 200.37080138500096,
+      "total_seconds_including_shutdown": 203.6950333450004,
+      "peak_gpu_mib": 14044.0,
+      "peak_process_tree_rss_mib": 7664.984375,
+      "mean_processing_gpu_utilization": 87.96341463414635,
+      "audio_seconds": 11021.16,
+      "audio_seconds_per_wall_second": 85.17223480576028,
+      "peak_gpu_gib": 13.71484375,
+      "peak_rss_gib": 7.4853363037109375,
+      "worker_file_counts": {
+        "0": 100
+      },
+      "failed_recordings": [
+        {
+          "kind": "file",
+          "worker": 0,
+          "file": "2026-11-05T21_47_23_+12103238064",
+          "audio_seconds": 151.2,
+          "group_size": 1,
+          "group_inference_seconds": 14.031083895999473,
+          "success": false,
+          "error": "Incomplete vLLM generation: length"
+        }
+      ],
+      "summed_stage_seconds": {
+        "asr": 99.47309980199861,
+        "alignment": 21.02180232896353
+      },
+      "audit": {
+        "outputs": 99,
+        "violations": [],
+        "diagnostic_totals": {
+          "alignment_warnings": 21,
+          "unaligned_word_count": 0,
+          "zero_duration_word_count": 1601,
+          "suspicious_gap_count": 6
+        },
+        "short_cue_counts": {
+          "1": 8,
+          "20": 8,
+          "80": 68,
+          "100": 68,
+          "250": 320
+        }
+      }
+    },
+    "qwen-shared-four": {
+      "backend": "qwen3",
+      "workers": 1,
+      "batch_size": 8,
+      "kv_cache_mib": 1024,
+      "recordings_per_batch": 4,
+      "output": "/output/qwen-shared-four",
+      "chunk_seconds": 30,
+      "initialization": "sequential, inference starts after all workers are ready",
+      "worker_type": "threads, matching the production pipeline",
+      "initialization_seconds": 42.38634958700277,
+      "worker_initializations": [
+        {
+          "kind": "ready",
+          "worker": 0,
+          "model_seconds": 42.35937723099778
+        }
+      ],
+      "processing_wall_seconds": 110.16375083399907,
+      "attempted": 100,
+      "successful": 98,
+      "total_seconds_excluding_shutdown": 152.55028786400362,
+      "total_seconds_including_shutdown": 155.36629412000184,
+      "peak_gpu_mib": 12190.0,
+      "peak_process_tree_rss_mib": 6874.28515625,
+      "mean_processing_gpu_utilization": 83.90430622009569,
+      "audio_seconds": 11021.16,
+      "audio_seconds_per_wall_second": 100.04343458318974,
+      "peak_gpu_gib": 11.904296875,
+      "peak_rss_gib": 6.713169097900391,
+      "worker_file_counts": {
+        "0": 100
+      },
+      "failed_recordings": [
+        {
+          "kind": "file",
+          "worker": 0,
+          "file": "2026-11-05T21_47_23_+12103238064",
+          "audio_seconds": 151.2,
+          "group_size": 4,
+          "group_inference_seconds": 15.256710595996992,
+          "success": false,
+          "error": "Incomplete vLLM generation: length"
+        },
+        {
+          "kind": "file",
+          "worker": 0,
+          "file": "2026-11-05T22_10_46_+19567151828",
+          "audio_seconds": 259.22,
+          "group_size": 4,
+          "group_inference_seconds": 17.093885634996695,
+          "success": false,
+          "error": "Incomplete vLLM generation: length"
+        }
+      ],
+      "summed_stage_seconds": {
+        "asr": 80.82157403799647,
+        "alignment": 20.409755065069476
+      },
+      "audit": {
+        "outputs": 98,
+        "violations": [],
+        "diagnostic_totals": {
+          "alignment_warnings": 21,
+          "unaligned_word_count": 0,
+          "zero_duration_word_count": 1555,
+          "suspicious_gap_count": 5
+        },
+        "short_cue_counts": {
+          "1": 8,
+          "20": 8,
+          "80": 65,
+          "100": 65,
+          "250": 308
+        }
+      }
+    },
+    "qwen-shared-sixteen": {
+      "backend": "qwen3",
+      "workers": 1,
+      "batch_size": 16,
+      "kv_cache_mib": 1024,
+      "recordings_per_batch": 4,
+      "output": "/output/qwen-shared-sixteen",
+      "chunk_seconds": 30,
+      "initialization": "sequential, inference starts after all workers are ready",
+      "worker_type": "threads, matching the production pipeline",
+      "initialization_seconds": 69.49512350199802,
+      "worker_initializations": [
+        {
+          "kind": "ready",
+          "worker": 0,
+          "model_seconds": 69.4756237229958
+        }
+      ],
+      "processing_wall_seconds": 83.21877948099427,
+      "attempted": 100,
+      "successful": 99,
+      "total_seconds_excluding_shutdown": 152.71405609099747,
+      "total_seconds_including_shutdown": 156.05550450699957,
+      "peak_gpu_mib": 15788.0,
+      "peak_process_tree_rss_mib": 6977.35546875,
+      "mean_processing_gpu_utilization": 78.16455696202532,
+      "audio_seconds": 11021.16,
+      "audio_seconds_per_wall_second": 132.43597261020923,
+      "peak_gpu_gib": 15.41796875,
+      "peak_rss_gib": 6.813823699951172,
+      "worker_file_counts": {
+        "0": 100
+      },
+      "failed_recordings": [
+        {
+          "kind": "file",
+          "worker": 0,
+          "file": "2026-11-05T21_47_23_+12103238064",
+          "audio_seconds": 151.2,
+          "group_size": 4,
+          "group_inference_seconds": 14.824611741001718,
+          "success": false,
+          "error": "Incomplete vLLM generation: length"
+        }
+      ],
+      "summed_stage_seconds": {
+        "asr": 54.20023901298555,
+        "alignment": 20.181879098920035
+      },
+      "audit": {
+        "outputs": 99,
+        "violations": [],
+        "diagnostic_totals": {
+          "alignment_warnings": 22,
+          "unaligned_word_count": 0,
+          "zero_duration_word_count": 1582,
+          "suspicious_gap_count": 6
+        },
+        "short_cue_counts": {
+          "1": 9,
+          "20": 9,
+          "80": 69,
+          "100": 69,
+          "250": 314
+        }
+      },
+      "input_verification": {
+        "files": 100,
+        "checked_chunks": 440,
+        "mismatches": []
+      }
+    },
+    "qwen-two-eight": {
+      "backend": "qwen3",
+      "workers": 2,
+      "batch_size": 8,
+      "kv_cache_mib": 1024,
+      "recordings_per_batch": 1,
+      "output": "/output/qwen-two-eight",
+      "chunk_seconds": 30,
+      "initialization": "sequential, inference starts after all workers are ready",
+      "worker_type": "threads, matching the production pipeline",
+      "initialization_seconds": 78.69535131900193,
+      "worker_initializations": [
+        {
+          "kind": "ready",
+          "worker": 0,
+          "model_seconds": 51.79134420199989
+        },
+        {
+          "kind": "ready",
+          "worker": 1,
+          "model_seconds": 26.884488051000517
+        }
+      ],
+      "processing_wall_seconds": 124.19755425900075,
+      "attempted": 100,
+      "successful": 99,
+      "total_seconds_excluding_shutdown": 202.8930751070002,
+      "total_seconds_including_shutdown": 206.00061168499815,
+      "peak_gpu_mib": 22724.0,
+      "peak_process_tree_rss_mib": 10393.703125,
+      "mean_processing_gpu_utilization": 96.20762711864407,
+      "audio_seconds": 11021.16,
+      "audio_seconds_per_wall_second": 88.7389455110891,
+      "peak_gpu_gib": 22.19140625,
+      "peak_rss_gib": 10.150100708007812,
+      "worker_file_counts": {
+        "1": 54,
+        "0": 46
+      },
+      "failed_recordings": [
+        {
+          "kind": "file",
+          "worker": 0,
+          "file": "2026-11-05T21_47_23_+12103238064",
+          "audio_seconds": 151.2,
+          "group_size": 1,
+          "group_inference_seconds": 24.93291893300193,
+          "success": false,
+          "error": "Incomplete vLLM generation: length"
+        }
+      ],
+      "summed_stage_seconds": {
+        "asr": 190.35003007603518,
+        "alignment": 48.47320704496087
+      },
+      "audit": {
+        "outputs": 99,
+        "violations": [],
+        "diagnostic_totals": {
+          "alignment_warnings": 20,
+          "unaligned_word_count": 0,
+          "zero_duration_word_count": 1597,
+          "suspicious_gap_count": 6
+        },
+        "short_cue_counts": {
+          "1": 8,
+          "20": 8,
+          "80": 70,
+          "100": 70,
+          "250": 324
+        }
+      }
+    },
+    "qwen-two-four-threads": {
+      "backend": "qwen3",
+      "workers": 2,
+      "batch_size": 4,
+      "kv_cache_mib": 1024,
+      "recordings_per_batch": 1,
+      "output": "/output/qwen-two-four-threads",
+      "chunk_seconds": 30,
+      "initialization": "sequential, inference starts after all workers are ready",
+      "worker_type": "threads, matching the production pipeline",
+      "initialization_seconds": 67.99172135199842,
+      "worker_initializations": [
+        {
+          "kind": "ready",
+          "worker": 0,
+          "model_seconds": 41.688235796998924
+        },
+        {
+          "kind": "ready",
+          "worker": 1,
+          "model_seconds": 26.2749992680001
+        }
+      ],
+      "processing_wall_seconds": 151.98956323200036,
+      "attempted": 100,
+      "successful": 98,
+      "total_seconds_excluding_shutdown": 219.98143986599825,
+      "total_seconds_including_shutdown": 223.13932088399815,
+      "peak_gpu_mib": 20476.0,
+      "peak_process_tree_rss_mib": 10272.12890625,
+      "mean_processing_gpu_utilization": 97.46712802768167,
+      "audio_seconds": 11021.16,
+      "audio_seconds_per_wall_second": 72.51261050850609,
+      "peak_gpu_gib": 19.99609375,
+      "peak_rss_gib": 10.031375885009766,
+      "worker_file_counts": {
+        "1": 52,
+        "0": 48
+      },
+      "failed_recordings": [
+        {
+          "kind": "file",
+          "worker": 1,
+          "file": "2026-11-05T21_47_23_+12103238064",
+          "audio_seconds": 151.2,
+          "group_size": 1,
+          "group_inference_seconds": 26.410008506998565,
+          "success": false,
+          "error": "Incomplete vLLM generation: length"
+        },
+        {
+          "kind": "file",
+          "worker": 0,
+          "file": "2026-11-05T22_10_46_+19567151828",
+          "audio_seconds": 259.22,
+          "group_size": 1,
+          "group_inference_seconds": 28.422241139000107,
+          "success": false,
+          "error": "Incomplete vLLM generation: length"
+        }
+      ],
+      "summed_stage_seconds": {
+        "asr": 237.49534672598747,
+        "alignment": 55.56191194203711
+      }
+    },
+    "whisperx-two": {
+      "backend": "whisperx",
+      "workers": 2,
+      "batch_size": 16,
+      "kv_cache_mib": 1024,
+      "recordings_per_batch": 1,
+      "output": "/output/whisperx-two",
+      "chunk_seconds": null,
+      "initialization": "sequential, inference starts after all workers are ready",
+      "worker_type": "threads, matching the production pipeline",
+      "initialization_seconds": 9.83804929300095,
+      "worker_initializations": [
+        {
+          "kind": "ready",
+          "worker": 0,
+          "model_seconds": 7.871530525997514
+        },
+        {
+          "kind": "ready",
+          "worker": 1,
+          "model_seconds": 1.9394664310020744
+        }
+      ],
+      "processing_wall_seconds": 246.79211970500182,
+      "attempted": 100,
+      "successful": 100,
+      "total_seconds_excluding_shutdown": 256.63031954199687,
+      "total_seconds_including_shutdown": 256.75264017199515,
+      "peak_gpu_mib": 18037.0,
+      "peak_process_tree_rss_mib": 5500.5078125,
+      "mean_processing_gpu_utilization": 84.54291845493562,
+      "audio_seconds": 11021.16,
+      "audio_seconds_per_wall_second": 44.657665784361065,
+      "peak_gpu_gib": 17.6142578125,
+      "peak_rss_gib": 5.371589660644531,
+      "worker_file_counts": {
+        "0": 49,
+        "1": 51
+      },
+      "failed_recordings": [],
+      "summed_stage_seconds": {
+        "asr": 0,
+        "alignment": 0
+      },
+      "audit": {
+        "outputs": 100,
+        "violations": [],
+        "diagnostic_totals": {
+          "alignment_warnings": 177,
+          "unaligned_word_count": 171,
+          "zero_duration_word_count": 0,
+          "suspicious_gap_count": 9
+        },
+        "short_cue_counts": {
+          "1": 0,
+          "20": 0,
+          "80": 2,
+          "100": 3,
+          "250": 68
+        }
+      }
+    }
+  },
+  "recovery_experiment": [
+    {
+      "file": "2026-11-05T21_47_23_+12103238064",
+      "mode": "isolated",
+      "start_seconds": 138.83,
+      "end_seconds": 151.2,
+      "success": false,
+      "error": "Incomplete vLLM generation: length",
+      "seconds": 11.762847429999965
+    },
+    {
+      "file": "2026-11-05T21_47_23_+12103238064",
+      "mode": "with_previous_chunk",
+      "start_seconds": 112.78,
+      "end_seconds": 151.2,
+      "success": true,
+      "error": null,
+      "seconds": 1.491352529003052
+    },
+    {
+      "file": "2026-11-05T22_10_46_+19567151828",
+      "mode": "isolated",
+      "start_seconds": 249.07,
+      "end_seconds": 259.22,
+      "success": true,
+      "error": null,
+      "seconds": 0.26463470000453526
+    },
+    {
+      "file": "2026-11-05T22_10_46_+19567151828",
+      "mode": "with_previous_chunk",
+      "start_seconds": 223.14,
+      "end_seconds": 259.22,
+      "success": true,
+      "error": null,
+      "seconds": 0.9380988720004098
+    }
+  ],
+  "shared_batches_excluding_both_repetition_groups": {
+    "qwen-shared-four": {
+      "groups": 23,
+      "summed_group_seconds": 77.76557342803426
+    },
+    "qwen-shared-sixteen": {
+      "groups": 23,
+      "summed_group_seconds": 64.84701525401033
+    }
+  }
+}

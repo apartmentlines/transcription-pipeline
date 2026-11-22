@@ -1,0 +1,115 @@
+{
+  "qwen": {
+    "files_attempted": 100,
+    "successful": 96,
+    "diagnostics_export_failures": 0,
+    "source_matches_worktree": true,
+    "audio_seconds_attempted": 11021.16,
+    "audio_seconds_successful": 10473.14,
+    "total_seconds_including_load": 770.1568436950001,
+    "model_load_seconds": 7.862563840997609,
+    "processing_seconds_all_attempts": 762.163,
+    "inference_seconds_successful": 725.3636616219846,
+    "render_seconds_successful": 1.1479284789966187,
+    "realtime_factor_successful": 0.06925942569487133,
+    "audio_seconds_per_second_successful": 14.438467976988296,
+    "median_inference_seconds": 7.15798635650026,
+    "sampled_peak_gpu_mib": 10355.0,
+    "baseline_gpu_mib": 93.0,
+    "peak_host_rss_mib": 4927.83203125,
+    "same_original_text": 96,
+    "same_original_srt": 96,
+    "failures": [
+      {
+        "number": 10,
+        "file": "2026-11-05T20_07_02_+13014043515",
+        "audio_seconds": 204.56,
+        "success": false,
+        "error": "Transcription error [timing]: Invalid alignment timestamp interval: start=175.68, end=176.56, duration=176.05",
+        "seconds": 11.452,
+        "sampled_peak_memory": {
+          "gpu_used_mib": 10345.0,
+          "host_rss_mib": 2140.28515625
+        },
+        "torch_peak_allocated_mib": 6959.94921875,
+        "torch_peak_reserved_mib": 9926.0
+      },
+      {
+        "number": 77,
+        "file": "2026-11-06T02_31_03_+19188893586",
+        "audio_seconds": 128.62,
+        "success": false,
+        "error": "Transcription error [timing]: Invalid alignment timestamp interval: start=128.24, end=132.16, duration=128.62",
+        "seconds": 8.407,
+        "sampled_peak_memory": {
+          "gpu_used_mib": 10355.0,
+          "host_rss_mib": 2134.453125
+        },
+        "torch_peak_allocated_mib": 6604.7685546875,
+        "torch_peak_reserved_mib": 9936.0
+      },
+      {
+        "number": 80,
+        "file": "2026-11-06T03_39_57_+15047157377",
+        "audio_seconds": 69.82,
+        "success": false,
+        "error": "Transcription error [timing]: Invalid alignment timestamp interval: start=69.76, end=69.84, duration=69.82",
+        "seconds": 5.04,
+        "sampled_peak_memory": {
+          "gpu_used_mib": 10355.0,
+          "host_rss_mib": 2176.6875
+        },
+        "torch_peak_allocated_mib": 6168.56884765625,
+        "torch_peak_reserved_mib": 9936.0
+      },
+      {
+        "number": 100,
+        "file": "2026-11-06T07_22_09_+19187048315",
+        "audio_seconds": 145.02,
+        "success": false,
+        "error": "Transcription error [timing]: Invalid alignment timestamp interval: start=144.8, end=145.04, duration=145.02",
+        "seconds": 10.508,
+        "sampled_peak_memory": {
+          "gpu_used_mib": 10355.0,
+          "host_rss_mib": 2202.92578125
+        },
+        "torch_peak_allocated_mib": 6730.5439453125,
+        "torch_peak_reserved_mib": 9936.0
+      }
+    ]
+  },
+  "whisperx": {
+    "files_attempted": 100,
+    "successful": 100,
+    "diagnostics_export_failures": 100,
+    "source_matches_worktree": true,
+    "audio_seconds_attempted": 11021.16,
+    "audio_seconds_successful": 11021.16,
+    "total_seconds_including_load": 312.5494235900005,
+    "model_load_seconds": 9.01556643100048,
+    "processing_seconds_all_attempts": 303.446,
+    "inference_seconds_successful": 303.1359720690016,
+    "render_seconds_successful": 0.10785276501701446,
+    "realtime_factor_successful": 0.027504906204882388,
+    "audio_seconds_per_second_successful": 36.35714997720989,
+    "median_inference_seconds": 2.836844827501409,
+    "sampled_peak_gpu_mib": 11979.0,
+    "baseline_gpu_mib": 93.0,
+    "peak_host_rss_mib": 4118.71875,
+    "same_original_text": 0,
+    "same_original_srt": 0,
+    "failures": []
+  },
+  "matched_successes": {
+    "qwen": {
+      "files": 96,
+      "audio_seconds": 10473.14,
+      "inference_seconds": 725.3636616219846
+    },
+    "whisperx": {
+      "files": 96,
+      "audio_seconds": 10473.14,
+      "inference_seconds": 288.66259477499625
+    }
+  }
+}

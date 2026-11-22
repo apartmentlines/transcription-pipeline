@@ -94,6 +94,7 @@ docker login
 Images use `apartmentlinesproduction/transcription-pipeline-whisperx` and `apartmentlinesproduction/transcription-pipeline-qwen3`. Omit `-p` to build without publishing.
 
 See the [deployment guide](docs/deployment.md) for the shared Qwen engine, GPU and MIG requirements, cache configuration, REST/RunPod, and troubleshooting.
+See [measured backend performance](docs/performance.md) for the Qwen and WhisperX comparison.
 
 ## Development
 
