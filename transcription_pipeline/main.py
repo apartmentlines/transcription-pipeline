@@ -41,6 +41,7 @@ from transcription_pipeline.utils import (
 from transcription_pipeline.config import load_configuration, set_environment_variables
 from transcription_pipeline.deployment import Deployment, ManifestStore
 from transcription_pipeline.backends.factory import BackendSession
+from transcription_pipeline.observability import RunMetrics
 
 
 class TranscriptionProcessingPipeline(ProcessingPipeline):
@@ -72,6 +73,7 @@ class TranscriptionPipeline:
     initialization_failed: Event
     pipeline: ProcessingPipeline
     backends: BackendSession
+    metrics: RunMetrics
 
     def __init__(
         self,
@@ -91,7 +93,9 @@ class TranscriptionPipeline:
         qwen_batch_size: int | None = None,
         qwen_chunk_seconds: int | None = None,
     ) -> None:
+        RunMetrics.configure_logging(debug)
         self.log = Logger(self.__class__.__name__, debug=debug)
+        self.metrics = RunMetrics()
         self.api_key = api_key
         self.domain = domain
         self.limit = limit
@@ -132,7 +136,7 @@ class TranscriptionPipeline:
         self.simulate_downloads = simulate_downloads
         self.debug = debug
         self.initialization_failed = Event()
-        self.backends = BackendSession(self.deployment, debug)
+        self.backends = BackendSession(self.deployment, debug, self.metrics)
         self.pipeline = self._initialize_pipeline()
 
     def _initialize_pipeline(self) -> ProcessingPipeline:
@@ -197,6 +201,25 @@ class TranscriptionPipeline:
         self.log.info("Configuration loaded successfully")
 
     def run(self) -> int:
+        """Measure the full run, including failures and backend teardown."""
+        self.metrics.start()
+        exit_code = 1
+        try:
+            exit_code = self._run()
+        finally:
+            self.metrics.set_phase("shutting_down")
+            try:
+                self.backends.close()
+            except Exception:
+                exit_code = 1
+                raise
+            finally:
+                self.metrics.finish(exit_code == 0)
+        self.log.info(f"Transcription pipeline completed with exit code {exit_code}")
+        return exit_code
+
+    def _run(self) -> int:
+        """Retrieve recordings and drain all processing and upload work."""
         self.log.info("Starting transcription pipeline")
         self.setup_configuration()
         files = self.retrieve_file_data()
@@ -205,13 +228,10 @@ class TranscriptionPipeline:
             return 0
         files = self.prepare_file_data(files)
         self.log.info("Starting pipeline execution")
-        try:
-            exit_code = self.pipeline.run(files)
-        finally:
-            self.backends.close()
+        exit_code = self.pipeline.run(files)
         if self.initialization_failed.is_set() and exit_code == 0:
             exit_code = 1
-        self.log.info(f"Transcription pipeline completed with exit code {exit_code}")
+        self.log.info(f"Processing and uploads drained with exit code {exit_code}")
         return exit_code
 
 

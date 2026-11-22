@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from .qwen3_batching import SharedQwenTranscriber
 
 from ..deployment import Deployment
+from ..observability import RunMetrics
 from .base import TranscriptionBackend
 
 
@@ -32,9 +33,15 @@ class BackendFactory:
 class BackendSession:
     """Own one Qwen runtime per pipeline run; WhisperX remains worker-owned."""
 
-    def __init__(self, deployment: Deployment, debug: bool = False) -> None:
+    def __init__(
+        self,
+        deployment: Deployment,
+        debug: bool = False,
+        metrics: RunMetrics | None = None,
+    ) -> None:
         self.deployment = deployment
         self.debug = debug
+        self.metrics = metrics
         self.lock = Lock()
         self.shared: SharedQwenTranscriber | None = None
         self.failure: Exception | None = None
@@ -43,7 +50,10 @@ class BackendSession:
     def worker(self) -> TranscriptionBackend:
         """Initialize shared models once even when worker threads start together."""
         if self.deployment.backend == "whisperx":
-            return BackendFactory.create(self.deployment, self.debug)
+            backend = BackendFactory.create(self.deployment, self.debug)
+            if self.metrics is not None:
+                self.metrics.worker_ready()
+            return backend
         from .qwen3_batching import SharedQwenTranscriber
 
         with self.lock:
@@ -61,6 +71,8 @@ class BackendSession:
                 except Exception as exc:
                     self.failure = exc
                     raise
+            if self.metrics is not None:
+                self.metrics.worker_ready()
             return self.shared
 
     def close(self) -> None:

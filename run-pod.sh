@@ -27,7 +27,7 @@ stop_pod() {
   fi
   if [ -n "${RUNPOD_POD_ID}" ]; then
     echo "Stopping pod ${RUNPOD_POD_ID}..."
-    runpodctl stop pod "${RUNPOD_POD_ID}"
+    runpodctl pod stop "${RUNPOD_POD_ID}"
   fi
 }
 

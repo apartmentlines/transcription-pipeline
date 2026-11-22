@@ -13,6 +13,7 @@ import tempfile
 import logging
 import threading
 import traceback
+from time import monotonic
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
@@ -31,6 +32,7 @@ from transcription_pipeline.constants import (
 from transcription_pipeline.main import TranscriptionPipeline
 from transcription_pipeline.deployment import Deployment, ManifestStore
 from transcription_pipeline import utils
+from transcription_pipeline.observability import RunMetrics
 
 
 class TranscriptionRestInterface:
@@ -56,6 +58,7 @@ class TranscriptionRestInterface:
         deployment: Deployment | None = None,
     ) -> None:
         """Initialize the REST interface components and state."""
+        RunMetrics.configure_logging(debug)
         self.debug: bool = debug
         self.log: logging.Logger = Logger(
             "TranscriptionRESTInterface", debug=self.debug
@@ -97,6 +100,9 @@ class TranscriptionRestInterface:
         flask_thread.start()
         self.log.info(
             f"Flask server started in background thread on http://{host}:{port}"
+        )
+        self.log.info(
+            "HTTP interface available; models load after /run (models_ready=false)"
         )
 
         # Wait for the pipeline manager to signal completion
@@ -304,6 +310,9 @@ class PipelineLifecycleManager:
         self._pipeline_completion_event: threading.Event = threading.Event()
         self._pipeline_exit_code: int = DEFAULT_REST_FAILURE_EXIT_CODE
         self.pipeline_log_file_path: str | None = None
+        self.pipeline: TranscriptionPipeline | None = None
+        self.started_at: float = monotonic()
+        self.requested_at: float | None = None
 
     def is_running(self) -> bool:
         """Check if the pipeline is currently running.
@@ -330,7 +339,20 @@ class PipelineLifecycleManager:
             else:
                 status = "idle"
                 exit_code = None
-            return {"status": status, "exit_code": exit_code}
+            readiness = (
+                self.pipeline.metrics.readiness()
+                if self.pipeline is not None
+                else {
+                    "phase": "starting" if self._pipeline_started else "idle",
+                    "models_ready": False,
+                    "ready_workers": 0,
+                }
+            )
+            if self._pipeline_completed:
+                readiness.update(
+                    phase="complete" if exit_code == 0 else "failed", models_ready=False
+                )
+            return {"status": status, "exit_code": exit_code, **readiness}
 
     def start_pipeline(
         self, pipeline_kwargs: dict[str, Any], callback_url: str | None
@@ -353,6 +375,11 @@ class PipelineLifecycleManager:
 
             # Reset state for a new run
             self._pipeline_started = True
+            self.requested_at = monotonic()
+            self.log.info(
+                "REST run accepted: wait_for_request_seconds=%.3f",
+                self.requested_at - self.started_at,
+            )
             self._pipeline_completed = False
             self._pipeline_exit_code = (
                 DEFAULT_REST_FAILURE_EXIT_CODE  # Reset to default failure
@@ -423,6 +450,8 @@ class PipelineLifecycleManager:
                 raise RuntimeError("Pipeline log file environment variable not set.")
 
             pipeline: TranscriptionPipeline = TranscriptionPipeline(**pipeline_kwargs)
+            with self._lock:
+                self.pipeline = pipeline
             exit_code = pipeline.run()
             task_success = exit_code == 0
             if not task_success:
@@ -450,6 +479,16 @@ class PipelineLifecycleManager:
 
             # Signal completion last
             self.log.debug("Signaling pipeline completion event.")
+            self.log.info(
+                "REST lifecycle finished: exit_code=%d total_seconds=%.3f request_seconds=%s (includes callback attempt; total also includes HTTP wait; excludes pod stop)",
+                exit_code,
+                monotonic() - self.started_at,
+                (
+                    round(monotonic() - self.requested_at, 3)
+                    if self.requested_at is not None
+                    else None
+                ),
+            )
             self._pipeline_completion_event.set()
 
     def _fetch_pipeline_logs(self) -> str:

@@ -34,7 +34,7 @@ Model identities and revisions are maintained in [constants.py](../transcription
 
 ## Qwen shared engine
 
-Qwen uses one vLLM ASR engine with FlashAttention and one Transformers aligner with SDPA. The ordinary image includes the complete stack; the old optional FlashAttention wheel and `TRANSCRIPTION_QWEN_ATTENTION` setting are no longer used.
+The Qwen image bundles the models and FlashAttention runtime. One engine serves multiple recordings.
 
 ```bash
 docker build -f Dockerfile.qwen3 --target runtime -t transcription-pipeline-qwen3:shared-engine .
@@ -54,15 +54,13 @@ For direct installation, use Python 3.12, FFmpeg, GCC/G++, and the pinned `requi
 | `--qwen-batch-size` | `TRANSCRIPTION_QWEN_BATCH_SIZE` | 16 active audio chunks |
 | `--qwen-chunk-seconds` | `TRANSCRIPTION_QWEN_CHUNK_SECONDS` | 45 seconds (allowed: 1–90) |
 
-These options work with both `transcriber` and `transcription-processor`. Explicit options override environment defaults. REST `/run` accepts `processing_limit`, `qwen_batch_size`, and `qwen_chunk_seconds` with the same meanings. Each recording retains its own context and output. WhisperX still owns a separate model per worker and defaults to three workers.
-
-Incomplete Qwen generation receives one retry with a neighboring chunk where available. The entire retry window is re-transcribed and aligned; partial text is never appended to the result. Use `--debug-output` to inspect retry diagnostics.
+These options work with both `transcriber` and `transcription-processor` and override environment defaults. REST `/run` accepts `processing_limit`, `qwen_batch_size`, and `qwen_chunk_seconds`. WhisperX defaults to three workers, each with its own model.
 
 ## GPU compatibility and concurrency
 
 Use an Ampere or newer NVIDIA GPU (RTX 3090 and newer). The pinned Qwen stack uses CUDA 13 and requires an R580 or newer compatible host driver; see [NVIDIA's compatibility table](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html). The 3090 has been tested; throughput and memory usage on other GPUs and MIG slices must be measured separately.
 
-vLLM compiles kernels for the assigned GPU at startup. Mount a persistent cache at `/root/.cache/vllm` to reuse compilation across runs on compatible hardware. The image includes the required compiler. Start with the defaults and lower the chunk batch size if memory is constrained.
+Allow time for model loading and GPU compilation when configuring startup timeouts. Start with the defaults and lower the chunk batch size if memory is constrained.
 
 ### MIG selection
 
@@ -76,8 +74,6 @@ docker run --rm --gpus "device=MIG-<UUID>" \
 ```
 
 For direct Python execution, set `CUDA_VISIBLE_DEVICES` to the MIG UUID before launching Python. In Compose, replace the GPU reservation's `count: all` with `device_ids: ["MIG-<UUID>"]`. When the provider already isolates the instance, keep its visibility settings. A single visible instance is `cuda:0`.
-
-The `1g.24gb` profile provides 24 GB and one quarter of the parent GPU's SMs; tune concurrency for the slice. See NVIDIA's [container selection](https://docs.nvidia.com/datacenter/tesla/mig-user-guide/latest/getting-started-with-mig.html#running-containers) and [RTX PRO 6000 MIG profiles](https://docs.nvidia.com/datacenter/tesla/mig-user-guide/latest/supported-mig-profiles.html#rtx-pro-6000-blackwell-mig-profiles).
 
 ## REST and RunPod
 
@@ -93,14 +89,21 @@ Use `GET /status` to inspect state and `POST /run` to start processing. An examp
 {
   "api_key": "YOUR_API_KEY",
   "domain": "example.com",
-  "limit": 100,
-  "processing_limit": 3
+  "limit": 100
 }
 ```
 
 The server manifest selects the backend. An optional `backend` field must match it; requests cannot select a filesystem manifest. Configure `--model-manifest` when starting the server if needed. Set the server's expected API key with `--api-key` or `TRANSCRIPTION_API_KEY`. Include `callback_url` in the request body to receive a completion notification. Each server process handles one run and exits after completion.
 
 RunPod starts either image with `bash ./run-pod.sh`; forwarded arguments configure `rest-interface`. The wrapper handles SSH setup, completion, and pod shutdown.
+
+Models load after `/run`. Check `phase` and `models_ready` in `/status` to distinguish
+initialization from readiness to transcribe.
+
+Logs report startup stages, processing time, shutdown time, throughput, and sampled
+memory usage. Look for `Pipeline measurements` for the run summary and `REST lifecycle
+finished` for completion after the callback attempt. These timings exclude image
+downloads, pod provisioning, and pod shutdown.
 
 ## Recording context and diarization
 

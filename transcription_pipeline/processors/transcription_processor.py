@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from threading import Event
+from time import monotonic
 from typing import Any, override
 
 from download_pipeline_processor.file_data import FileData
@@ -17,6 +18,7 @@ from ..backends.factory import BackendFactory, BackendSession
 from ..deployment import Deployment
 from ..errors import FailureCleanup
 from ..results import TranscriptionContext
+from ..observability import RunMetrics
 from ..subtitles import SubtitleRenderer
 
 
@@ -24,6 +26,7 @@ class TranscriptionProcessor(BaseProcessor):
     """Use the run's shared Qwen engine or a worker's reusable WhisperX backend."""
 
     renderer: SubtitleRenderer
+    metrics: RunMetrics | None
 
     def __init__(
         self,
@@ -36,6 +39,7 @@ class TranscriptionProcessor(BaseProcessor):
         self.transcriber: TranscriptionBackend | None = None
         self.initialization_error: Exception | None = None
         self.renderer = SubtitleRenderer()
+        self.metrics = backend_session.metrics if backend_session is not None else None
         try:
             self.transcriber = (
                 backend_session.worker()
@@ -73,6 +77,29 @@ class TranscriptionProcessor(BaseProcessor):
 
     @override
     def process(self, file_data: FileData) -> dict[str, Any]:
+        """Measure completed recording calls without counting initialization as inference."""
+        started = monotonic()
+        success = False
+        audio_seconds = 0.0
+        if self.metrics is not None:
+            self.metrics.processing_started()
+        try:
+            result = self._process(file_data)
+            success = True
+            audio_seconds = result["metadata"]["audio_duration"]
+            return result
+        finally:
+            if self.metrics is not None:
+                self.metrics.processing_finished(success, audio_seconds)
+            self.log.info(
+                "Recording id=%s success=%s audio_seconds=%.3f elapsed_seconds=%.3f",
+                file_data.id,
+                success,
+                audio_seconds,
+                monotonic() - started,
+            )
+
+    def _process(self, file_data: FileData) -> dict[str, Any]:
         """Return the existing external result contract without temporary files."""
         if self.initialization_error is not None:
             raise self.initialization_error

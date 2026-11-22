@@ -18,6 +18,7 @@ from transcription_pipeline.constants import (
     DEFAULT_REST_PORT,
 )
 from transcription_pipeline.deployment import Deployment
+from transcription_pipeline.observability import RunMetrics
 from transcription_pipeline.rest_interface import (
     PipelineConfigValidator,
     PipelineLifecycleManager,
@@ -424,6 +425,7 @@ def mock_transcription_pipeline():
     """Fixture for a mocked TranscriptionPipeline class."""
     with patch("transcription_pipeline.rest_interface.TranscriptionPipeline") as mock:
         mock_instance = MagicMock()
+        mock_instance.metrics = RunMetrics()
         mock_instance.run.return_value = 0
         mock.return_value = mock_instance
         yield mock, mock_instance
@@ -482,11 +484,44 @@ def manager_debug(mock_send_callback: MagicMock) -> PipelineLifecycleManager:
 def test_manager_initial_state(manager: PipelineLifecycleManager):
     """Test the initial state of the manager."""
     assert not manager.is_running()
-    assert manager.get_status() == {"status": "idle", "exit_code": None}
+    assert manager.get_status() == {
+        "status": "idle",
+        "exit_code": None,
+        "phase": "idle",
+        "models_ready": False,
+        "ready_workers": 0,
+    }
     assert (
         manager.get_exit_code() == DEFAULT_REST_FAILURE_EXIT_CODE
     )  # Default until success
     assert manager.pipeline_log_file_path is None
+
+
+def test_status_reports_usable_models_and_clears_readiness_during_shutdown(
+    manager: PipelineLifecycleManager,
+    mock_transcription_pipeline: tuple[MagicMock, MagicMock],
+    validator: PipelineConfigValidator,
+) -> None:
+    """HTTP availability must not imply inference readiness, even on failed teardown."""
+    _, pipeline = mock_transcription_pipeline
+    manager.pipeline = pipeline
+    manager._pipeline_started = True
+    client = create_app(manager, validator, None, manager.log).test_client()
+    assert client.get("/status").json["models_ready"] is False
+    pipeline.metrics.worker_ready()
+    ready = client.get("/status").json
+    assert ready["status"] == "running"
+    assert ready["models_ready"] is True
+    assert ready["ready_workers"] == 1
+    pipeline.metrics.set_phase("shutting_down")
+    closing = client.get("/status").json
+    assert closing["phase"] == "shutting_down"
+    assert closing["models_ready"] is False
+    manager._pipeline_completed = True
+    failed = client.get("/status").json
+    assert failed["status"] == "complete"
+    assert failed["phase"] == "failed"
+    assert failed["models_ready"] is False
 
 
 @pytest.mark.usefixtures("mock_transcription_pipeline", "mock_send_callback")
@@ -507,7 +542,13 @@ def test_manager_start_pipeline_success(
 
         assert result is True
         assert manager.is_running()
-        assert manager.get_status() == {"status": "running", "exit_code": None}
+        assert manager.get_status() == {
+            "status": "running",
+            "exit_code": None,
+            "phase": "starting",
+            "models_ready": False,
+            "ready_workers": 0,
+        }
         assert manager.pipeline_log_file_path == mock_tempfile_file.name
         assert (
             os.environ.get("DOWNLOAD_PIPELINE_PROCESSOR_LOG_FILE")
@@ -646,7 +687,13 @@ def test_run_pipeline_task_success(
 
     # Check final state (set within _run_pipeline_task)
     assert not manager.is_running()  # Should be complete now
-    assert manager.get_status() == {"status": "complete", "exit_code": 0}
+    assert manager.get_status() == {
+        "status": "complete",
+        "exit_code": 0,
+        "phase": "complete",
+        "models_ready": False,
+        "ready_workers": 0,
+    }
     assert manager.get_exit_code() == 0
     assert manager._pipeline_completion_event.is_set()
     assert "Pipeline run finished with exit code 0" in caplog.text
@@ -704,6 +751,9 @@ def test_run_pipeline_task_pipeline_error(
     assert manager_debug.get_status() == {
         "status": "complete",
         "exit_code": DEFAULT_REST_FAILURE_EXIT_CODE,
+        "phase": "failed",
+        "models_ready": False,
+        "ready_workers": 0,
     }
     assert manager_debug.get_exit_code() == DEFAULT_REST_FAILURE_EXIT_CODE
     assert manager_debug._pipeline_completion_event.is_set()
@@ -746,7 +796,13 @@ def test_run_pipeline_task_no_callback_url(
 
     # Check final state (should be success)
     assert not manager.is_running()
-    assert manager.get_status() == {"status": "complete", "exit_code": 0}
+    assert manager.get_status() == {
+        "status": "complete",
+        "exit_code": 0,
+        "phase": "complete",
+        "models_ready": False,
+        "ready_workers": 0,
+    }
     assert manager.get_exit_code() == 0
     assert manager._pipeline_completion_event.is_set()
     # Check environment variable was cleaned up
@@ -1324,7 +1380,13 @@ def test_nonzero_pipeline_result_reports_failure(
         {"api_key": "key", "domain": "example.com"}, "http://callback.test"
     )
     assert manager.get_exit_code() == 7
-    assert manager.get_status() == {"status": "complete", "exit_code": 7}
+    assert manager.get_status() == {
+        "status": "complete",
+        "exit_code": 7,
+        "phase": "failed",
+        "models_ready": False,
+        "ready_workers": 0,
+    }
     payload = mock_send_callback.call_args.args[1]
     assert payload == {"status": "error", "message": "Pipeline failed with exit code 7"}
     assert manager._pipeline_completion_event.is_set()

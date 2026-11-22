@@ -34,6 +34,14 @@ from transcription_pipeline.main import (
 pytestmark = pytest.mark.usefixtures("mock_deployment")
 
 
+@pytest.fixture(autouse=True)
+def disable_resource_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Orchestration unit tests must not inspect the developer's GPU."""
+    monkeypatch.setattr(
+        "transcription_pipeline.observability.ResourceSampler.start", Mock()
+    )
+
+
 class TestTranscriptionPipeline:
     """Verify pipeline configuration, execution and command-line behavior."""
 
@@ -319,6 +327,8 @@ class TestTranscriptionPipeline:
         with pytest.raises(ValueError, match="Configuration error"):
             pipeline.run()
         mock_run.assert_not_called()
+        assert pipeline.metrics.readiness()["phase"] == "failed"
+        assert pipeline.metrics.readiness()["models_ready"] is False
 
     @patch("download_pipeline_processor.processing_pipeline.ProcessingPipeline.run")
     @patch.object(TranscriptionPipeline, "retrieve_file_data")

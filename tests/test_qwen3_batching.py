@@ -13,6 +13,7 @@ import pytest
 from transcription_pipeline.backends.factory import BackendFactory, BackendSession
 from transcription_pipeline.backends.qwen3_batching import SharedQwenTranscriber
 from transcription_pipeline.deployment import Deployment
+from transcription_pipeline.observability import RunMetrics
 from transcription_pipeline.results import TranscriptionContext
 from transcription_pipeline.processors.transcription_processor import (
     TranscriptionProcessor,
@@ -35,7 +36,8 @@ def test_simultaneous_workers_share_one_engine_and_receive_their_own_results(
     backend.transcribe_batch.side_effect = process
     factory = Mock(return_value=backend)
     monkeypatch.setattr(BackendFactory, "create", factory)
-    session = BackendSession(backend.deployment)
+    metrics = RunMetrics()
+    session = BackendSession(backend.deployment, metrics=metrics)
     worker_class = TranscriptionProcessor.bind(
         backend.deployment, backend_session=session
     )
@@ -65,6 +67,8 @@ def test_simultaneous_workers_share_one_engine_and_receive_their_own_results(
                 else:
                     assert future.result(timeout=5) == name
         factory.assert_called_once()
+        assert metrics.readiness()["ready_workers"] == 4
+        assert metrics.readiness()["models_ready"] is True
         assert backend.transcribe_batch.call_count == 1
     finally:
         session.close()

@@ -11,6 +11,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
+from time import monotonic
 from typing import Any
 
 import numpy as np
@@ -136,7 +137,14 @@ class Qwen3Transcriber:
         self.deployment = deployment
         self.log = logging.getLogger(__name__)
         self.log.setLevel(logging.DEBUG if debug else logging.INFO)
+        started = phase_started = monotonic()
+        self.log.info("Qwen initialization started: importing torch and transformers")
         self.torch, transformers = self._dependencies()
+        self.log.info(
+            "Qwen dependency imports completed: seconds=%.3f",
+            monotonic() - phase_started,
+        )
+        phase_started = monotonic()
         if not self.torch.cuda.is_available():
             raise ConfigurationError("Qwen3 requires an NVIDIA CUDA GPU")
         self.torch.cuda.set_device(deployment.device)
@@ -147,6 +155,10 @@ class Qwen3Transcriber:
             )
         os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
         vllm = importlib.import_module("vllm")
+        self.log.info(
+            "Qwen CUDA setup and vLLM import completed: seconds=%.3f",
+            monotonic() - phase_started,
+        )
         dtype = getattr(self.torch, deployment.precision)
         options = {
             "dtype": dtype,
@@ -155,6 +167,7 @@ class Qwen3Transcriber:
             "local_files_only": True,
         }
         try:
+            phase_started = monotonic()
             asr_path = str(deployment.model("asr").path)
             aligner_path = str(deployment.model("aligner").path)
             self.asr_processor = transformers.AutoProcessor.from_pretrained(
@@ -163,6 +176,11 @@ class Qwen3Transcriber:
             self.aligner_processor = transformers.AutoProcessor.from_pretrained(
                 aligner_path, local_files_only=True
             )
+            self.log.info(
+                "Qwen processors loaded: seconds=%.3f", monotonic() - phase_started
+            )
+            phase_started = monotonic()
+            self.log.info("Qwen vLLM engine initialization started: engine_count=1")
             self.llm = vllm.LLM(
                 model=asr_path,
                 dtype=deployment.precision,
@@ -180,6 +198,11 @@ class Qwen3Transcriber:
                 },
                 seed=0,
             )
+            self.log.info(
+                "Qwen vLLM engine initialized: seconds=%.3f",
+                monotonic() - phase_started,
+            )
+            phase_started = monotonic()
             self.sampling = vllm.SamplingParams(
                 temperature=0,
                 max_tokens=QWEN_GENERATION_BUDGET,
@@ -191,9 +214,11 @@ class Qwen3Transcriber:
                 ).eval()
             )
             self.log.info(
-                "Qwen shared engine ready: active_chunks=%d chunk_seconds=%d",
+                "Qwen shared engine ready: active_chunks=%d chunk_seconds=%d aligner_load_seconds=%.3f total_initialization_seconds=%.3f",
                 deployment.qwen_batch_size,
                 deployment.qwen_chunk_seconds,
+                monotonic() - phase_started,
+                monotonic() - started,
             )
         except Exception as exc:
             self.close()
@@ -288,9 +313,13 @@ class Qwen3Transcriber:
         """Release the engine process and aligner after all submitted work finishes."""
         llm = getattr(self, "llm", None)
         if llm is not None:
+            started = monotonic()
             self.log.info("Stopping Qwen shared engine")
             llm.llm_engine.engine_core.shutdown()
             del self.llm
+            self.log.info(
+                "Qwen engine shutdown completed: seconds=%.3f", monotonic() - started
+            )
         if hasattr(self, "aligner_model"):
             del self.aligner_model
 
